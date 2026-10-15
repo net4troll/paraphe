@@ -12,7 +12,8 @@ RUN pnpm install --frozen-lockfile
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN pnpm prisma generate && pnpm next build
+# Next.js permet un projet sans assets publics ; la copie vers runner exige ce dossier.
+RUN mkdir -p public && pnpm prisma generate && pnpm next build
 
 # ---- Exécution ----
 FROM base AS runner
