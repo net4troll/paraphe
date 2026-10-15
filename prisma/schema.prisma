@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum DocumentStatus {
+  draft
+  pending
+  completed
+
+  @@map("document_status")
+}
+
+enum SignerStatus {
+  pending
+  signed
+
+  @@map("signer_status")
+}
+
+enum FieldType {
+  text
+  textarea
+  date
+  number
+  checkbox
+  select
+
+  @@map("field_type")
+}
+
+model Document {
+  id           String         @id @default(uuid())
+  title        String
+  status       DocumentStatus @default(draft)
+  originalPath String
+  currentPath  String
+  finalPath    String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  signers      Signer[]
+  fields       Field[]
+
+  @@map("documents")
+}
+
+model Signer {
+  id         String       @id @default(uuid())
+  documentId String
+  document   Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  name       String
+  email      String       @default("")
+  role       String       @default("Partenaire")
+  token      String       @unique
+  status     SignerStatus @default(pending)
+  page       Int?
+  xPct       Float?
+  yPct       Float?
+  widthPct   Float?
+  signedAt   DateTime?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime     @default(now())
+  fields     Field[]
+
+  @@index([documentId])
+  @@map("signers")
+}
+
+model Field {
+  id         String    @id @default(uuid())
+  documentId String
+  document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  signerId   String
+  signer     Signer    @relation(fields: [signerId], references: [id], onDelete: Cascade)
+  label      String
+  type       FieldType @default(text)
+  options    String?
+  presetValue String?
+  page       Int
+  xPct       Float
+  yPct       Float
+  widthPct   Float     @default(0.2)
+  createdAt  DateTime  @default(now())
+
+  @@index([documentId])
+  @@index([signerId])
+  @@map("fields")
+}

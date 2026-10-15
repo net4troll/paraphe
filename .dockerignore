@@ -1,0 +1,9 @@
+node_modules
+.next
+out
+storage
+certs
+.env
+.env.local
+*.md
+.git

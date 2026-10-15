@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: signflow
+      POSTGRES_PASSWORD: signflow
+      POSTGRES_DB: signflow
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U signflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://signflow:signflow@db:5432/signflow
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      APP_NAME: ${APP_NAME:-Paraphe}
+      COMPANY_NAME: ${COMPANY_NAME:-Paraphe}
+      AUTH_SECRET: ${AUTH_SECRET:?renseignez AUTH_SECRET}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?renseignez ADMIN_PASSWORD}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      SIGN_CERT_PATH: /app/certs/signing.p12
+      SIGN_CERT_PASSWORD: ${SIGN_CERT_PASSWORD:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+    volumes:
+      - ./storage:/app/storage
+      - ./certs:/app/certs
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:
