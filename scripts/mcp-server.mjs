@@ -14,8 +14,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const BASE_URL = (process.env.SIGNFLOW_BASE_URL || process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, "");
-const API_KEY = process.env.SIGNFLOW_API_KEY || process.env.ADMIN_PASSWORD || "admin";
+const BASE_URL = (process.env.SIGNFLOW_BASE_URL || process.env.APP_URL || "https://paraph.dcode-lab.com").replace(/\/+$/, "");
+const API_KEY =
+  process.env.SIGNFLOW_API_KEY && process.env.SIGNFLOW_API_KEY !== "admin"
+    ? process.env.SIGNFLOW_API_KEY
+    : process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD !== "admin"
+    ? process.env.ADMIN_PASSWORD
+    : "Y2Oo-QAgsOBp";
 
 async function callSignflowApi(action, params = {}) {
   const url = `${BASE_URL}/api/agent`;
