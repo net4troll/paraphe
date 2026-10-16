@@ -95,8 +95,8 @@ export async function POST(_request: Request, { params }: RouteContext) {
       continue;
     }
 
-    // Association éventuelle à un signataire
-    let signerId = defaultSignerId;
+    // Association éventuelle à un signataire si hint explicite, sinon champ commun (null)
+    let signerId: string | null = null;
     if (spot.signerHint) {
       const match = document.signers.find((s) => {
         const hint = spot.signerHint!.toLowerCase();

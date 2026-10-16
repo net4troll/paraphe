@@ -221,7 +221,8 @@ export async function agentDetectAndSaveFields(docId: string, replace = true) {
   for (const spot of detected) {
     if (spot.type === "signature") continue;
 
-    let signerId = defaultSignerId;
+    // Association éventuelle à un signataire si hint explicite, sinon champ commun (null)
+    let signerId: string | null = null;
     if (spot.signerHint) {
       const match = document.signers.find((s) => {
         const hint = spot.signerHint!.toLowerCase();
@@ -258,7 +259,82 @@ export async function agentDetectAndSaveFields(docId: string, replace = true) {
 }
 
 /**
- * 4. Remplir / Pré-remplir les valeurs de champs existants.
+ * Tamponne et fige les valeurs préremplies dans le PDF pour qu'elles soient visibles
+ * par tous les signataires et sur l'aperçu du document.
+ */
+export async function stampDocumentWithFields(docId: string): Promise<string> {
+  const document = await db.document.findUnique({
+    where: { id: docId },
+    include: { fields: true },
+  });
+  if (!document) throw new Error("Document introuvable");
+
+  const base = await readStoredFile(document.originalPath);
+
+  // 1. Remplissage direct des formulaires AcroForms natifs si le PDF en dispose
+  const { PDFDocument } = await import("pdf-lib");
+  const doc = await PDFDocument.load(base, { ignoreEncryption: true });
+  try {
+    const form = doc.getForm();
+    const acroFields = form.getFields();
+    if (acroFields.length > 0) {
+      for (const f of document.fields) {
+        if (!f.presetValue) continue;
+        const normField = f.label.trim().toLowerCase().replace(/[\s_\-]+/g, "");
+        for (const af of acroFields) {
+          const normAcro = af.getName().trim().toLowerCase().replace(/[\s_\-]+/g, "");
+          if (normAcro === normField) {
+            try {
+              if (af.constructor.name === "PDFTextField") {
+                (af as any).setText(f.presetValue);
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
+      }
+      form.flatten();
+    }
+  } catch {
+    // pas de form AcroForms natif
+  }
+
+  // 2. Tamponnage visuel pour les autres champs ou PDF non-AcroForms
+  const validPresets = document.fields.filter(
+    (f) => f.presetValue && f.presetValue.trim() !== ""
+  );
+  let finalPdfBytes: Buffer;
+  if (validPresets.length > 0) {
+    const fieldsToStamp: FieldToStamp[] = validPresets.map((f) => ({
+      type: f.type,
+      label: f.label,
+      value: f.type === "checkbox" ? f.presetValue === "true" : f.presetValue!,
+      page: f.page,
+      xPct: f.xPct,
+      yPct: f.yPct,
+      widthPct: f.widthPct,
+    }));
+    const intermediateBytes = Buffer.from(await doc.save({ useObjectStreams: false }));
+    finalPdfBytes = await stampFieldValues(intermediateBytes, fieldsToStamp);
+  } else {
+    finalPdfBytes = Buffer.from(await doc.save({ useObjectStreams: false }));
+  }
+
+  await ensureDocumentDir(document.id);
+  const nextCurrentPath = versionPath(document.id, 0);
+  await fs.writeFile(nextCurrentPath, finalPdfBytes);
+
+  await db.document.update({
+    where: { id: docId },
+    data: { currentPath: nextCurrentPath },
+  });
+
+  return nextCurrentPath;
+}
+
+/**
+ * 4. Remplir / Pré-remplir les valeurs de champs existants et figer sur le PDF.
  */
 export async function agentFillFields(
   docId: string,
@@ -280,8 +356,12 @@ export async function agentFillFields(
       where: { id: target.id },
       data: { presetValue: String(val) },
     });
+    target.presetValue = String(val);
     updatedCount++;
   }
+
+  // Tamponnage automatique et immédiat du PDF pour affichage figé visible pour tous
+  await stampDocumentWithFields(docId);
 
   return { updatedCount, totalFields: fields.length };
 }

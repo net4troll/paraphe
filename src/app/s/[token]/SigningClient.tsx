@@ -60,7 +60,15 @@ export default function SigningClient(props: Props) {
   const [signedAt, setSignedAt] = useState(props.signedAt);
   const [showQr, setShowQr] = useState(false);
   const [qrUrl, setQrUrl] = useState("");
-  const [values, setValues] = useState<Record<string, string | boolean>>({});
+  const [values, setValues] = useState<Record<string, string | boolean>>(() => {
+    const init: Record<string, string | boolean> = {};
+    for (const f of props.fields) {
+      if (f.presetValue) {
+        init[f.id] = f.type === "checkbox" ? f.presetValue === "true" : f.presetValue;
+      }
+    }
+    return init;
+  });
   const [hasInk, setHasInk] = useState(false);
   const [docRead, setDocRead] = useState(false);
   const [focusRequest, setFocusRequest] = useState<{ fieldId: string; nonce: number } | null>(null);

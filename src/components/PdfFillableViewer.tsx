@@ -122,11 +122,9 @@ export default function PdfFillableViewer({
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
                 />
-                {pageFields
-                  .filter((f) => !f.presetValue)
-                  .map((field) => {
-                    const value = String(values[field.id] ?? "");
-                    const filled = value.trim() !== "";
+                {pageFields.map((field) => {
+                  const value = String(values[field.id] ?? field.presetValue ?? "");
+                  const filled = value.trim() !== "";
                   const hPct = HEIGHT_PCT[field.type] ?? 2.6;
                   const common = {
                     "data-field-input": field.id,
