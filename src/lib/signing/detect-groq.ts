@@ -29,72 +29,88 @@ const VALID_TYPES = new Set<DetectedType>([
   "select",
 ]);
 
-const GROQ_SYSTEM_PROMPT = `Tu es un modèle spécialisé dans l'analyse de documents juridiques, contrats, devis et formulaires.
-Ton rôle est de détecter VISUELLEMENT les zones à signer ou à remplir sur l'image de la page transmise.
+const GROQ_SYSTEM_PROMPT = `Tu es un modèle spécialisé dans l'analyse de documents juridiques, contrats, formulaires administratifs et devis.
+Ton rôle est d'analyser l'image de la page transmise pour détecter TOUTES les zones où du texte ou une signature doit être ajouté(e) ou rempli(e) :
 
-Pour chaque zone détectée :
-1. "signature" : rectangle de signature, paraphe ou cachet. IMPORTANT : la zone de signature se situe EN DESSOUS de l'intitulé (ex: sous "Pour le Client", "Signature", etc.) ou dans le cadre réservé.
-2. "date" : zone réservée à l'inscription de la date (ex: après ou sous "Fait le :", "Date :").
-3. "text" : champ textuel à remplir (ex: après ou sous "Nom :", "Prénom :", "Qualité :", "Adresse :", etc.).
-4. "number" : champ numérique (montant, total, etc.).
-5. "checkbox" : case à cocher vide ([ ], case carrée).
-6. "textarea" : zone de texte multi-lignes (observations, commentaires).
+1. "signature" : zones de signature, paraphes, cachets ou mentions "Pour le Client", "Pour le Prestataire", etc.
+2. "text" : zones de saisie textuelle (lignes de soulignement "____", pointillés "....", mentions "Nom :", "Prénom :", "Adresse :", "Qualité :", "Fait à :", cases ou champs vides).
+3. "date" : emplacements où inscrire la date ("Date :", "Fait le :", etc.).
+4. "number" : montants, totaux, numéros de référence.
+5. "checkbox" : cases à cocher à remplir ([ ], case carrée).
+6. "textarea" : blocs de texte multi-lignes, observations, commentaires.
 
-RÈGLES IMPORTANTES :
-- Ne détecte PAS le texte normal des clauses ou des paragraphes. Uniquement les zones d'interaction (lignes de soulignement, pointillés, cadres de signature, mentions "Fait à... le...", mentions de signature).
-- Retourne les coordonnées en fractions de page (valeurs décimales entre 0.0 et 1.0) :
-  * xPct : position horizontale du CENTRE du champ (0.0 = bord gauche, 1.0 = bord droit)
-  * yPct : position verticale du BORD SUPÉRIEUR du champ (0.0 = haut de page, 1.0 = bas de page)
-  * widthPct : largeur de la zone (ex: 0.26 pour signature, 0.20 pour texte, 0.03 pour case à cocher)
-- Précise le rôle ou signataire supposé dans "signerHint" si identifiable (ex: "client", "prestataire", "1", "2").
+Pour chaque zone détectée, fournis :
+- "type": "signature" | "text" | "date" | "number" | "checkbox" | "textarea"
+- "label": libellé clair du champ (ex: "Nom du client", "Date", "Signature du Client", "Montant")
+- "bbox_2d": [ymin, xmin, ymax, xmax] normalisé entre 0 et 1000 correspondant au rectangle où inscrire le texte ou la signature
+- "signerHint": rôle supposé ("client", "prestataire", "1", "2") si identifiable
 
-Format strict de réponse : un objet JSON valide avec une clé "fields" contenant le tableau des champs détectés.`;
+Format strict de réponse : un objet JSON valide avec la clé "fields" : { "fields": [ ... ] }`;
 
 /**
- * Normalise un champ renvoyé par le modèle (gère xPct/yPct ou boîtes englobantes box_2d / rect).
+ * Normalise un champ renvoyé par Qwen (supporte bbox_2d, box_2d, rect ou xPct/yPct).
  */
 function normalizeModelField(
   raw: Record<string, unknown>,
   pageIndex: number
 ): DetectedField | null {
-  let type = String(raw.type || "text").toLowerCase() as DetectedType;
+  const rawLabel = String(raw.label || raw.text_content || raw.name || raw.field_name || "").trim();
+  let type = String(raw.type || "").toLowerCase().trim() as DetectedType;
+
+  // Déduction de type intelligente si manquant ou imprécis
   if (!VALID_TYPES.has(type)) {
-    if (/sign|paraphe|cachet/i.test(type)) type = "signature";
-    else if (/check|case/i.test(type)) type = "checkbox";
-    else if (/date/i.test(type)) type = "date";
-    else if (/num|montant|prix/i.test(type)) type = "number";
-    else type = "text";
+    if (/sign|paraphe|cachet/i.test(type) || /sign|paraphe|cachet/i.test(rawLabel)) {
+      type = "signature";
+    } else if (/check|case/i.test(type) || /case|cocher/i.test(rawLabel)) {
+      type = "checkbox";
+    } else if (/date/i.test(type) || /\bdate\b|en date du/i.test(rawLabel)) {
+      type = "date";
+    } else if (/num|montant|prix|total/i.test(type) || /montant|prix|total/i.test(rawLabel)) {
+      type = "number";
+    } else {
+      type = "text";
+    }
   }
 
   let xPct = 0.5;
   let yPct = 0.5;
   let widthPct = type === "signature" ? 0.26 : type === "checkbox" ? 0.03 : 0.22;
 
-  // Cas 1 : box_2d [ymin, xmin, ymax, xmax] (format standard détection d'objets)
-  if (Array.isArray(raw.box_2d) && raw.box_2d.length === 4) {
-    let [ymin, xmin, ymax, xmax] = raw.box_2d.map(Number);
-    // Si coordonnées 0..1000
-    if (ymax > 1 || xmax > 1) {
+  // 1. Détection via boîte englobante (bbox_2d / box_2d / bbox / rect)
+  const box = (raw.bbox_2d || raw.box_2d || raw.bbox || raw.rect) as number[] | undefined;
+  if (Array.isArray(box) && box.length === 4) {
+    let [ymin, xmin, ymax, xmax] = box.map(Number);
+    // Si coordonnées exprimées de 0 à 1000 (standard Qwen-VL / LayoutLM)
+    if (ymax > 1 || xmax > 1 || ymin > 1 || xmin > 1) {
       ymin /= 1000;
       xmin /= 1000;
       ymax /= 1000;
       xmax /= 1000;
     }
-    xPct = (xmin + xmax) / 2;
-    yPct = ymin;
-    widthPct = Math.max(0.03, xmax - xmin);
+    const actualYmin = Math.min(ymin, ymax);
+    const actualYmax = Math.max(ymin, ymax);
+    const actualXmin = Math.min(xmin, xmax);
+    const actualXmax = Math.max(xmin, xmax);
+
+    xPct = (actualXmin + actualXmax) / 2;
+    yPct = actualYmin;
+    widthPct = Math.max(0.04, actualXmax - actualXmin);
+
+    // Ajustement de taille minimale pour les signatures
+    if (type === "signature" && widthPct < 0.15) {
+      widthPct = 0.26;
+    }
   }
-  // Cas 2 : direct xPct, yPct, widthPct
+  // 2. Détection via coordonnées directes (xPct, yPct, widthPct)
   else if (typeof raw.xPct === "number" && typeof raw.yPct === "number") {
     xPct = raw.xPct;
     yPct = raw.yPct;
     if (typeof raw.widthPct === "number") widthPct = raw.widthPct;
-    // Si valeurs exprimées en pourcentages entiers (ex: 75 au lieu de 0.75)
     if (xPct > 1) xPct /= 100;
     if (yPct > 1) yPct /= 100;
     if (widthPct > 1) widthPct /= 100;
   }
-  // Cas 3 : x, y, width, height
+  // 3. Détection via x, y, width, height
   else if (typeof raw.x === "number" && typeof raw.y === "number") {
     let x = raw.x;
     let y = raw.y;
@@ -109,7 +125,7 @@ function normalizeModelField(
     return null;
   }
 
-  const label = String(raw.label || (type === "signature" ? "Signature" : "Champ")).slice(0, 60);
+  const label = (rawLabel || (type === "signature" ? "Signature" : "Champ")).slice(0, 60);
   const signerHint = typeof raw.signerHint === "string" ? raw.signerHint.trim().toLowerCase() : undefined;
 
   return {
@@ -125,9 +141,9 @@ function normalizeModelField(
 }
 
 /**
- * Rend une page PDF en buffer JPEG via @napi-rs/canvas.
+ * Rend une page PDF en buffer JPEG haute fidélité via @napi-rs/canvas.
  */
-async function renderPageToJpeg(page: PDFPageProxy, scale = 1.3): Promise<Buffer> {
+async function renderPageToJpeg(page: PDFPageProxy, scale = 1.4): Promise<Buffer> {
   const viewport = page.getViewport({ scale });
   const width = Math.floor(viewport.width);
   const height = Math.floor(viewport.height);
@@ -135,16 +151,16 @@ async function renderPageToJpeg(page: PDFPageProxy, scale = 1.3): Promise<Buffer
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
 
-  // Fond blanc pour éviter la transparence sur le modèle
+  // Fond blanc pour éviter la transparence
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, width, height);
 
   await page.render({ canvasContext: context, viewport }).promise;
-  return canvas.toBuffer("image/jpeg", 80);
+  return canvas.toBuffer("image/jpeg", 85);
 }
 
 /**
- * Niveau 2 : Détection visuelle par Groq API (modèle Qwen Vision, ex: qwen/qwen3.8-27b).
+ * Niveau 2 : Détection visuelle par Groq API (modèle multimodal Qwen 3.8-27b Vision).
  */
 export async function detectWithGroqVision(
   pdf: PDFDocumentProxy
@@ -154,12 +170,11 @@ export async function detectWithGroqVision(
 
   const model = process.env.GROQ_DETECTION_MODEL?.trim() || "qwen/qwen3.8-27b";
 
-  // Sélection des pages pertinentes (la dernière page contient quasi toujours les signatures)
+  // Sélection des pages pertinentes (sur contrats courts : toutes les pages ; sur longs : début et fin)
   const targetPages: number[] = [];
   if (pdf.numPages <= 3) {
     for (let i = 1; i <= pdf.numPages; i++) targetPages.push(i);
   } else {
-    // Page 1 (en-tête / formulaire) et les 2 dernières pages (signatures & annexes)
     targetPages.push(1);
     if (!targetPages.includes(pdf.numPages - 1)) targetPages.push(pdf.numPages - 1);
     if (!targetPages.includes(pdf.numPages)) targetPages.push(pdf.numPages);
@@ -169,12 +184,12 @@ export async function detectWithGroqVision(
 
   for (const pageNum of targetPages) {
     const page = await pdf.getPage(pageNum);
-    const jpegBuffer = await renderPageToJpeg(page, 1.3);
+    const jpegBuffer = await renderPageToJpeg(page, 1.4);
     const base64Data = jpegBuffer.toString("base64");
     const dataUrl = `data:image/jpeg;base64,${base64Data}`;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
+    const timeout = setTimeout(() => controller.abort(), 25000);
 
     try {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -195,7 +210,7 @@ export async function detectWithGroqVision(
               content: [
                 {
                   type: "text",
-                  text: `Analyse cette page (Page ${pageNum} sur ${pdf.numPages}). Identifie les zones de signature et les champs interactifs à remplir.`,
+                  text: `Analyse cette page (Page ${pageNum} sur ${pdf.numPages}). Identifie toutes les zones où du texte ou une signature doit être ajouté(e). Retourne un objet JSON avec la clé 'fields'.`,
                 },
                 {
                   type: "image_url",
@@ -206,7 +221,7 @@ export async function detectWithGroqVision(
           ],
           response_format: { type: "json_object" },
           temperature: 0.1,
-          max_tokens: 1500,
+          max_tokens: 2000,
         }),
         signal: controller.signal,
       });
@@ -224,12 +239,25 @@ export async function detectWithGroqVision(
       const content = body.choices?.[0]?.message?.content;
       if (!content) continue;
 
-      const parsed = JSON.parse(content) as { fields?: Record<string, unknown>[] };
-      const rawFields = Array.isArray(parsed.fields)
-        ? parsed.fields
-        : Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>[])
-        : [];
+      let rawFields: Record<string, unknown>[] = [];
+      try {
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+          rawFields = parsed;
+        } else if (Array.isArray(parsed.fields)) {
+          rawFields = parsed.fields;
+        } else if (Array.isArray(parsed.detections)) {
+          rawFields = parsed.detections;
+        } else if (typeof parsed === "object" && parsed !== null) {
+          // Si objet avec clés numériques ou unique champ
+          const values = Object.values(parsed);
+          const firstArray = values.find(Array.isArray);
+          if (firstArray) rawFields = firstArray as Record<string, unknown>[];
+        }
+      } catch (jsonErr) {
+        console.error("[detectWithGroqVision] Erreur parse JSON:", jsonErr);
+        continue;
+      }
 
       for (const raw of rawFields) {
         const field = normalizeModelField(raw, pageNum - 1);

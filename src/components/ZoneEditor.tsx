@@ -2,7 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
-import { Check, Eraser, PencilSimple, Trash } from "@phosphor-icons/react/ssr";
+import {
+  Check,
+  Eraser,
+  PencilSimple,
+  Trash,
+  X,
+  CaretDown,
+  CaretRight,
+} from "@phosphor-icons/react/ssr";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -38,19 +46,19 @@ type Tool = "signature" | "pdf_text" | FieldType;
 type Selection = { kind: "zone" | "field"; id: string } | null;
 
 const ZONE_COLORS = [
-  { border: "border-teal-600", bg: "bg-teal-600/10", text: "text-teal-700" },
-  { border: "border-amber-500", bg: "bg-amber-500/10", text: "text-amber-600" },
-  { border: "border-violet-500", bg: "bg-violet-500/10", text: "text-violet-600" },
-  { border: "border-rose-500", bg: "bg-rose-500/10", text: "text-rose-600" },
+  { border: "border-teal-600", bg: "bg-teal-600/10", text: "text-teal-700", solid: "bg-teal-600" },
+  { border: "border-amber-500", bg: "bg-amber-500/10", text: "text-amber-600", solid: "bg-amber-500" },
+  { border: "border-violet-500", bg: "bg-violet-500/10", text: "text-violet-600", solid: "bg-violet-500" },
+  { border: "border-rose-500", bg: "bg-rose-500/10", text: "text-rose-600", solid: "bg-rose-500" },
 ];
 
-const FIELD_TOOLS: { type: FieldType; label: string }[] = [
-  { type: "text", label: "Texte" },
-  { type: "textarea", label: "Commentaire" },
-  { type: "date", label: "Date" },
-  { type: "number", label: "Nombre" },
-  { type: "checkbox", label: "Case" },
-  { type: "select", label: "Liste" },
+const FIELD_TOOLS: { type: FieldType; label: string; icon: string }[] = [
+  { type: "text", label: "Texte", icon: "📝" },
+  { type: "date", label: "Date", icon: "📅" },
+  { type: "number", label: "Nombre", icon: "🔢" },
+  { type: "checkbox", label: "Case", icon: "☑️" },
+  { type: "textarea", label: "Commentaire", icon: "💬" },
+  { type: "select", label: "Liste", icon: "📋" },
 ];
 
 const TYPE_LABEL: Record<FieldType, string> = {
@@ -68,12 +76,10 @@ const FIELD_HEIGHT_PCT: Record<FieldType, number> = {
   textarea: 5.5,
   date: 2.6,
   number: 2.6,
-  checkbox: 2,
+  checkbox: 2.2,
   select: 2.6,
 };
 
-/** Poignées de largeur, HORS des limites de l'élément (comme dans efawtara) :
- *  saisir l'élément déplace toujours, saisir une poignée redimensionne. */
 const WIDTH_HANDLES = [
   { side: "w" as const, className: "-left-2.5 top-1/2 -translate-y-1/2 cursor-ew-resize" },
   { side: "e" as const, className: "-right-2.5 top-1/2 -translate-y-1/2 cursor-ew-resize" },
@@ -151,79 +157,173 @@ export default function ZoneEditor({
   const [selectedId, setSelectedId] = useState<string>(
     () => signers.find((s) => s.page === null)?.id ?? signers[0]?.id ?? ""
   );
-  /** Outil armé ; revenu à null après chaque placement (un ajout par sélection d'outil). */
+
+  /** Outil actif pour le prochain clic */
   const [tool, setTool] = useState<Tool | null>("signature");
-  const [fieldLabel, setFieldLabel] = useState("");
-  const [fieldPreset, setFieldPreset] = useState("");
-  const [fieldOptions, setFieldOptions] = useState("");
   const [selected, setSelected] = useState<Selection>(null);
 
-  // Copies locales : gestes de drag/resize fluides, synchronisées avec les props serveur.
+  // Saisie directe de nouveau texte sur le PDF au clic ou double-clic
+  const [pendingNewText, setPendingNewText] = useState<{
+    page: number;
+    xPct: number;
+    yPct: number;
+    widthPct: number;
+    text: string;
+  } | null>(null);
+  const pendingInputRef = useRef<HTMLInputElement>(null);
+
+  // Édition inline directe du texte sur le PDF (sans aucun window.prompt !)
+  const [inlineEditingId, setInlineEditingId] = useState<string | null>(null);
+  const [inlineValue, setInlineValue] = useState("");
+  const inlineInputRef = useRef<HTMLInputElement>(null);
+
+  // Modal propre pour modifier les propriétés d'un champ
+  const [modalField, setModalField] = useState<FieldView | null>(null);
+  const [modalDraft, setModalDraft] = useState<{
+    label: string;
+    type: FieldType;
+    options: string;
+    preset: string;
+    signerId: string | null;
+  }>({ label: "", type: "text", options: "", preset: "", signerId: null });
+
+  // Accordéon récapitulatif
+  const [showSummary, setShowSummary] = useState(false);
+
+  // Synchronisation locale pour gestes de drag / resize fluides
   const [localSigners, setLocalSigners] = useState<ZoneSigner[]>(signers);
   const [localFields, setLocalFields] = useState<FieldView[]>(fields);
   useEffect(() => setLocalSigners(signers), [signers]);
   useEffect(() => setLocalFields(fields), [fields]);
 
   const gestureRef = useRef<Gesture | null>(null);
-  /** Stop du geste actif : un nouveau pointerdown annule toujours le précédent. */
   const activeCleanupRef = useRef<(() => void) | null>(null);
-  /** Menu contextuel d'attribution : { champ, position écran }. */
-  const [menu, setMenu] = useState<{ fieldId: string; x: number; y: number } | null>(null);
-  /** Édition complète d'un champ (libellé, type, options, préremplissage). */
-  const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState<{
-    label: string;
-    type: FieldType;
-    options: string;
-    preset: string;
-  } | null>(null);
 
-  function startEditField(fieldId: string) {
-    const field = localFields.find((f) => f.id === fieldId);
-    if (!field) return;
-    setEditingFieldId(fieldId);
-    setEditDraft({
+  // Focus automatique lors de l'édition inline ou de la nouvelle saisie
+  useEffect(() => {
+    if (pendingNewText && pendingInputRef.current) {
+      pendingInputRef.current.focus();
+    }
+  }, [pendingNewText]);
+
+  useEffect(() => {
+    if (inlineEditingId && inlineInputRef.current) {
+      inlineInputRef.current.focus();
+      inlineInputRef.current.select();
+    }
+  }, [inlineEditingId]);
+
+  // Échap pour tout désélectionner / annuler l'édition
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (pendingNewText) {
+          cancelPendingNewText();
+        } else if (inlineEditingId) {
+          cancelInlineEdit();
+        } else if (modalField) {
+          setModalField(null);
+        } else {
+          setSelected(null);
+          setTool(null);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pendingNewText, inlineEditingId, modalField]);
+
+  function commitPendingNewText() {
+    if (!pendingNewText) return;
+    const val = pendingNewText.text.trim();
+    if (val) {
+      onAddField(
+        null,
+        "text",
+        val,
+        [],
+        val,
+        pendingNewText.page,
+        pendingNewText.xPct,
+        pendingNewText.yPct
+      );
+    }
+    setPendingNewText(null);
+  }
+
+  function cancelPendingNewText() {
+    setPendingNewText(null);
+  }
+
+  function startInlineEdit(fieldId: string, currentText: string) {
+    setInlineEditingId(fieldId);
+    setInlineValue(currentText);
+    setSelected({ kind: "field", id: fieldId });
+  }
+
+  function commitInlineEdit() {
+    if (!inlineEditingId) return;
+    const val = inlineValue.trim();
+    const field = localFields.find((f) => f.id === inlineEditingId);
+
+    if (field) {
+      if (!val) {
+        // Si vide, suppression propre
+        onDeleteField(field.id);
+        setLocalFields((prev) => prev.filter((f) => f.id !== field.id));
+      } else {
+        onPresetField(field.id, val);
+        onRenameField(field.id, val);
+        setLocalFields((prev) =>
+          prev.map((f) => (f.id === field.id ? { ...f, presetValue: val, label: val } : f))
+        );
+      }
+    }
+    setInlineEditingId(null);
+  }
+
+  function cancelInlineEdit() {
+    if (!inlineEditingId) return;
+    const field = localFields.find((f) => f.id === inlineEditingId);
+    if (field && !field.presetValue && field.label === "Nouveau texte") {
+      // Suppression de l'élément provisoire
+      onDeleteField(field.id);
+      setLocalFields((prev) => prev.filter((f) => f.id !== field.id));
+    }
+    setInlineEditingId(null);
+  }
+
+  function openFieldModal(field: FieldView) {
+    setModalField(field);
+    setModalDraft({
       label: field.label,
       type: field.type,
       options: field.options.join(", "),
       preset: field.presetValue,
+      signerId: field.signerId,
     });
-    setMenu(null);
   }
 
-  function renameFieldPrompt(fieldId: string) {
-    const field = localFields.find((f) => f.id === fieldId);
-    if (!field) return;
-    const next = prompt(`Nouveau libellé du champ :`, field.label);
-    if (next === null) return;
-    const label = next.trim();
-    if (!label || label === field.label) return;
-    onRenameField(fieldId, label);
-    setMenu(null);
-  }
-
-  function saveEditField(fieldId: string) {
-    if (!editDraft || !editDraft.label.trim()) return;
+  function saveModalField() {
+    if (!modalField || !modalDraft.label.trim()) return;
     const options =
-      editDraft.type === "select"
-        ? editDraft.options
-            .split(",")
-            .map((o) => o.trim())
-            .filter(Boolean)
+      modalDraft.type === "select"
+        ? modalDraft.options.split(",").map((o) => o.trim()).filter(Boolean)
         : [];
-    onUpdateField(fieldId, {
-      label: editDraft.label.trim(),
-      type: editDraft.type,
-      options,
-      presetValue: editDraft.preset.trim(),
-    });
-    setEditingFieldId(null);
-    setEditDraft(null);
-  }
 
-  const selectedSigner =
-    localSigners.find((s) => s.id === selectedId) ?? localSigners[0];
-  const selectedSignerIndex = localSigners.findIndex((s) => s.id === selectedSigner?.id);
+    onUpdateField(modalField.id, {
+      label: modalDraft.label.trim(),
+      type: modalDraft.type,
+      options,
+      presetValue: modalDraft.preset.trim(),
+    });
+
+    if (modalDraft.signerId !== modalField.signerId) {
+      onReassignField(modalField.id, modalDraft.signerId);
+    }
+
+    setModalField(null);
+  }
 
   function clampX(v: number) {
     return Math.min(0.97, Math.max(0.03, v));
@@ -234,6 +334,10 @@ export default function ZoneEditor({
   function clampW(v: number) {
     return Math.min(0.6, Math.max(0.08, v));
   }
+
+  const selectedSigner =
+    localSigners.find((s) => s.id === selectedId) ?? localSigners[0];
+  const selectedSignerIndex = localSigners.findIndex((s) => s.id === selectedSigner?.id);
 
   function beginGesture(
     kind: "zone" | "field",
@@ -247,10 +351,11 @@ export default function ZoneEditor({
     event.preventDefault();
     activeCleanupRef.current?.();
     activeCleanupRef.current = null;
-    setMenu(null);
     setSelected({ kind, id });
+
     const pageEl = event.currentTarget.closest("[data-page]") as HTMLElement | null;
     if (!pageEl) return;
+
     gestureRef.current = {
       kind,
       id,
@@ -263,17 +368,16 @@ export default function ZoneEditor({
       startY: start.yPct,
       startW: start.widthPct,
     };
+
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
-      // pointeur sans capture : le geste reste géré par les listeners fenêtre
+      // pas de capture
     }
 
     const move = (moveEvent: PointerEvent) => {
       const gesture = gestureRef.current;
-      if (!gesture) return;
-      // Garde-fou anti-listener zombie : bouton relâché = fin du geste
-      if (!(moveEvent.buttons & 1)) {
+      if (!gesture || !(moveEvent.buttons & 1)) {
         stop();
         return;
       }
@@ -281,6 +385,7 @@ export default function ZoneEditor({
       const dxPx = moveEvent.clientX - gesture.startClientX;
       const dyPx = moveEvent.clientY - gesture.startClientY;
       if (Math.hypot(dxPx, dyPx) > 4) gesture.moved = true;
+
       const dxPct = dxPx / rect.width;
       if (gesture.mode === "resize") {
         const dir = gesture.side === "w" ? -1 : 1;
@@ -302,7 +407,8 @@ export default function ZoneEditor({
         }
         return;
       }
-      const dyPct = (moveEvent.clientY - gesture.startClientY) / rect.height;
+
+      const dyPct = dyPx / rect.height;
       const geometry: Geometry = {
         page: Number(gesture.pageEl.dataset.page ?? 0),
         xPct: clampX(gesture.startX + dxPct),
@@ -310,6 +416,7 @@ export default function ZoneEditor({
         widthPct: gesture.startW,
       };
       gesture.lastGeometry = geometry;
+
       if (gesture.kind === "zone") {
         setLocalSigners((prev) =>
           prev.map((s) =>
@@ -329,21 +436,19 @@ export default function ZoneEditor({
       }
     };
 
-    const stop = (upEvent?: PointerEvent) => {
+    const stop = () => {
       const gesture = gestureRef.current;
       gestureRef.current = null;
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);
       if (activeCleanupRef.current === stop) activeCleanupRef.current = null;
+
       if (!gesture?.lastGeometry) {
-        // Clic sans déplacement sur un champ → menu contextuel d'attribution
-        if (gesture && gesture.kind === "field" && gesture.mode === "move") {
-          setSelected({ kind: "field", id: gesture.id });
-          setMenu({ fieldId: gesture.id, x: upEvent?.clientX ?? 0, y: upEvent?.clientY ?? 0 });
-        }
+        // Clic simple sans déplacement : simple sélection
         return;
       }
+
       if (gesture.kind === "zone") {
         onMoveZone(gesture.id, gesture.lastGeometry);
       } else {
@@ -356,15 +461,6 @@ export default function ZoneEditor({
     window.addEventListener("pointerup", stop);
     window.addEventListener("pointercancel", stop);
   }
-
-  // Échap = désélectionner
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSelected(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
 
   function handlePageClick(event: React.MouseEvent<HTMLDivElement>, pageIndex: number) {
     if (!tool) {
@@ -381,30 +477,26 @@ export default function ZoneEditor({
         return;
       }
       onPlace(selectedSigner.id, pageIndex, xPct, yPct);
+      setTool(null);
     } else if (tool === "pdf_text") {
-      const text = fieldPreset.trim() || "Texte";
-      onAddField(null, "text", "Texte PDF", [], text, pageIndex, xPct, yPct);
-      setFieldPreset("");
+      setPendingNewText({
+        page: pageIndex,
+        xPct,
+        yPct,
+        widthPct: 0.24,
+        text: "",
+      });
+      setTool(null);
     } else {
       if (!selectedSigner) {
-        alert("Sélectionnez un signataire pour lui attribuer un champ à remplir.");
+        alert("Sélectionnez un signataire pour lui attribuer un champ.");
         return;
       }
       const existing = localFields.filter((f) => f.signerId === selectedSigner.id).length;
-      const label = fieldLabel.trim() || `${TYPE_LABEL[tool]} ${existing + 1}`;
-      const options =
-        tool === "select"
-          ? fieldOptions
-              .split(",")
-              .map((o) => o.trim())
-              .filter(Boolean)
-          : [];
-      onAddField(selectedSigner.id, tool, label, options, fieldPreset.trim(), pageIndex, xPct, yPct);
-      setFieldLabel("");
-      setFieldPreset("");
-      setFieldOptions("");
+      const label = `${TYPE_LABEL[tool]} ${existing + 1}`;
+      onAddField(selectedSigner.id, tool, label, [], "", pageIndex, xPct, yPct);
+      setTool(null);
     }
-    setTool(null); // un ajout par sélection d'outil
   }
 
   function renderHandles(kind: "zone" | "field", id: string, geometry: Geometry) {
@@ -413,744 +505,715 @@ export default function ZoneEditor({
       <div
         key={handle.side}
         onPointerDown={(e) => beginGesture(kind, id, "resize", handle.side, geometry, e)}
-        className={`absolute z-20 h-4 w-4 rounded-full border-2 border-white bg-slate-900 shadow ${handle.className}`}
+        className={`absolute z-20 h-4 w-4 rounded-full border-2 border-white bg-slate-900 shadow-md ${handle.className}`}
       />
     ));
   }
 
   return (
-    <div>
-      {/* Sélecteur de signataire */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium text-slate-500">Signataire :</span>
-        {localSigners.map((signer, i) => {
-          const color = ZONE_COLORS[i % ZONE_COLORS.length];
-          const placed = signer.page !== null;
-          return (
-            <button
-              key={signer.id}
-              type="button"
-              onClick={() => setSelectedId(signer.id)}
-              className={`rounded-lg border px-3 py-1.5 text-sm transition ${
-                signer.id === selectedId
-                  ? `${color.border} ${color.bg} ${color.text} font-semibold shadow-xs`
-                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-              }`}
-            >
-              {signer.name || `Signataire ${i + 1}`}
-              <span className="ml-2 text-xs font-normal opacity-75">
-                {placed ? "✓ signature" : "— à placer"}
-              </span>
-            </button>
-          );
-        })}
+    <div className="select-none">
+      {/* 1. Barre supérieure : Signataires */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+            Signataire :
+          </span>
+          {localSigners.map((signer, i) => {
+            const color = ZONE_COLORS[i % ZONE_COLORS.length];
+            const placed = signer.page !== null;
+            const isCurrent = signer.id === selectedId;
+            return (
+              <button
+                key={signer.id}
+                type="button"
+                onClick={() => setSelectedId(signer.id)}
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                  isCurrent
+                    ? `${color.border} ${color.bg} ${color.text} font-semibold ring-2 ring-slate-900/10 shadow-xs`
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                }`}
+              >
+                <span className={`h-2 w-2 rounded-full ${color.solid}`} />
+                <span>{signer.name || `Signataire ${i + 1}`}</span>
+                <span className="text-[10px] opacity-70">
+                  {placed ? "✓ signé" : "(à placer)"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Outils */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {/* Modification directe du PDF */}
+      {/* 2. Barre d'outils de placement */}
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        {/* Ajouter du texte directement sur le PDF */}
         <button
           type="button"
           onClick={() => setTool((prev) => (prev === "pdf_text" ? null : "pdf_text"))}
-          className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
             tool === "pdf_text"
-              ? "border-brand-600 bg-brand-50 text-brand-700 font-semibold ring-2 ring-brand-500/20"
-              : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+              ? "border-brand-600 bg-brand-600 text-white font-semibold shadow-xs"
+              : "border-brand-300 bg-brand-50/60 text-brand-800 hover:bg-brand-100/60"
           }`}
         >
-          ✍️ Modifier le PDF (Texte)
+          <span>✍️</span>
+          <span>Ajouter du texte</span>
         </button>
 
-        <span className="text-xs text-slate-300">|</span>
+        <span className="text-slate-300">|</span>
 
         {/* Zone de signature */}
         <button
           type="button"
           onClick={() => setTool((prev) => (prev === "signature" ? null : "signature"))}
-          className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
             tool === "signature"
-              ? "border-slate-900 bg-slate-900 text-white"
-              : "border-slate-200 bg-white text-slate-600 hover:text-slate-900"
+              ? "border-slate-900 bg-slate-900 text-white shadow-xs"
+              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
           }`}
         >
-          Zone de signature
+          <span>🖊️</span>
+          <span>Zone de signature</span>
         </button>
 
-        <span className="text-xs text-slate-300">|</span>
+        <span className="text-slate-300">|</span>
 
-        <span className="text-xs text-slate-400">Champs signataire :</span>
-
+        {/* Champs interactifs */}
+        <span className="text-xs text-slate-400">Champs :</span>
         {FIELD_TOOLS.map((item) => (
           <button
             key={item.type}
             type="button"
             onClick={() => setTool((prev) => (prev === item.type ? null : item.type))}
-            className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+            className={`flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
               tool === item.type
-                ? "border-slate-900 bg-slate-900 text-white"
-                : "border-slate-200 bg-white text-slate-600 hover:text-slate-900"
+                ? "border-slate-900 bg-slate-900 text-white shadow-xs"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
             }`}
           >
-            {item.label}
+            <span>{item.icon}</span>
+            <span>{item.label}</span>
           </button>
         ))}
-
-        {tool === "pdf_text" && (
-          <div className="flex items-center gap-2">
-            <input
-              value={fieldPreset}
-              onChange={(e) => setFieldPreset(e.target.value)}
-              placeholder="Texte à intégrer dans le PDF..."
-              className="w-64 rounded-lg border border-brand-300 bg-brand-50/30 px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-600"
-              autoFocus
-            />
-            <span className="text-xs text-brand-700">
-              👉 Cliquez sur le PDF pour inscrire ce texte
-            </span>
-          </div>
-        )}
-
-        {tool && tool !== "signature" && tool !== "pdf_text" && (
-          <>
-            <input
-              value={fieldLabel}
-              onChange={(e) => setFieldLabel(e.target.value)}
-              placeholder={`Libellé (défaut : ${TYPE_LABEL[tool]} ${
-                localFields.filter((f) => f.signerId === selectedId).length + 1
-              })`}
-              className="w-48 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs outline-none focus:border-brand-600"
-            />
-            {tool !== "checkbox" && (
-              <input
-                value={fieldPreset}
-                onChange={(e) => setFieldPreset(e.target.value)}
-                placeholder="Valeur préremplie (optionnel)"
-                className="w-52 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs outline-none focus:border-brand-600"
-              />
-            )}
-            {tool === "select" && (
-              <input
-                value={fieldOptions}
-                onChange={(e) => setFieldOptions(e.target.value)}
-                placeholder="Options séparées par des virgules"
-                className="w-52 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs outline-none focus:border-brand-600"
-              />
-            )}
-            <span className="text-xs text-slate-500">
-              👉 Cliquez sur le document pour attribuer à {selectedSigner?.name ?? "ce signataire"}
-            </span>
-          </>
-        )}
-
-        {tool === "signature" && (
-          <span className="text-xs text-slate-500">
-            👉 Cliquez sur le document pour placer la signature de {selectedSigner?.name ?? "ce signataire"}
-          </span>
-        )}
-
-        {tool === null && (
-          <span className="text-xs text-slate-400">
-            Cliquez sur un élément pour le déplacer ou redimensionner
-          </span>
-        )}
       </div>
 
-      {/* PDF + éléments */}
+      {/* Bannière d'indication contextuelle quand un outil est armé */}
+      {tool && (
+        <div className="mt-2.5 flex items-center justify-between rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-800 animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <span className="text-base">
+              {tool === "pdf_text" ? "✍️" : tool === "signature" ? "🖊️" : "📝"}
+            </span>
+            <span>
+              {tool === "pdf_text"
+                ? "Cliquez à l'endroit désiré sur le PDF pour inscrire du texte."
+                : tool === "signature"
+                ? `Cliquez pour placer la signature de ${selectedSigner?.name || "ce signataire"}.`
+                : `Cliquez pour placer un champ ${TYPE_LABEL[tool]} pour ${selectedSigner?.name || "le signataire"}.`}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setTool(null)}
+            className="rounded px-2 py-0.5 text-xs font-semibold text-brand-700 hover:bg-brand-100"
+          >
+            ✕ Annuler
+          </button>
+        </div>
+      )}
+
+      {/* 3. Visualiseur PDF interactif */}
       <div
         ref={(el) => {
           if (el && el.clientWidth !== width) setWidth(el.clientWidth);
         }}
-        className="mt-3 max-h-[62vh] overflow-auto rounded-xl bg-slate-100 p-4 flex flex-col items-center gap-4"
+        className="mt-3 max-h-[64vh] overflow-auto rounded-xl bg-slate-100 p-4 flex flex-col items-center gap-4"
       >
         {width > 0 && (
           <Document
             file={fileUrl}
             onLoadSuccess={({ numPages: n }) => setNumPages(n)}
-            loading={<div className="py-20 text-sm text-slate-400">Chargement du PDF…</div>}
-            error={<div className="py-20 text-sm text-red-500">PDF illisible.</div>}
+            loading={<div className="py-20 text-sm text-slate-400">Chargement du document…</div>}
+            error={<div className="py-20 text-sm text-red-500">Impossible de charger le PDF.</div>}
           >
-            {Array.from({ length: numPages }, (_, pageIndex) => {
-              const color = ZONE_COLORS[selectedSignerIndex % ZONE_COLORS.length];
-              return (
-                <div
-                  key={pageIndex}
-                  data-page={pageIndex}
-                  className="relative mb-4 overflow-hidden rounded-sm border border-slate-200 last:mb-0"
-                >
-                  <Page
-                    pageNumber={pageIndex + 1}
-                    width={Math.min(width - 32, 850)}
-                    renderTextLayer={false}
-                    renderAnnotationLayer={false}
-                  />
+            {Array.from({ length: numPages }, (_, pageIndex) => (
+              <div
+                key={pageIndex}
+                data-page={pageIndex}
+                className="relative mb-4 overflow-hidden rounded border border-slate-300 bg-white shadow-sm last:mb-0"
+              >
+                <Page
+                  pageNumber={pageIndex + 1}
+                  width={Math.min(width - 32, 850)}
+                  renderTextLayer={false}
+                  renderAnnotationLayer={false}
+                />
 
-                  {/* Zones de signature (tous signataires) */}
-                  {localSigners.map((signer, i) => {
-                    if (signer.page !== pageIndex || signer.xPct === null || signer.yPct === null)
-                      return null;
-                    const zoneColor = ZONE_COLORS[i % ZONE_COLORS.length];
-                    const wPct = signer.widthPct ?? 0.26;
-                    const geometry: Geometry = {
-                      page: pageIndex,
-                      xPct: signer.xPct,
-                      yPct: signer.yPct,
-                      widthPct: wPct,
-                    };
-                    const isSelected =
-                      selected?.kind === "zone" && selected.id === signer.id;
-                    return (
-                      <div
-                        key={signer.id}
-                        onPointerDown={(e) =>
-                          beginGesture("zone", signer.id, "move", "e", geometry, e)
-                        }
-                        onClick={(e) => e.stopPropagation()}
-                        className={`absolute z-10 ${zoneColor.border} ${
-                          isSelected ? "bg-teal-600/20" : zoneColor.bg
-                        } cursor-move rounded-md border-2 ${
-                          isSelected ? "border-solid border-slate-900" : "border-dashed"
-                        }`}
-                        style={{
-                          left: `${signer.xPct * 100}%`,
-                          top: `${signer.yPct * 100}%`,
-                          width: `${wPct * 100}%`,
-                          height: `${wPct * 23.6}%`,
-                          transform: "translateX(-50%)",
-                          touchAction: "none",
-                        }}
-                      >
-                        <span
-                          className={`absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold ${zoneColor.text}`}
-                        >
-                          {signer.name} — signature
-                        </span>
-                        <button
-                          type="button"
-                          title="Supprimer la zone de signature"
-                          onPointerDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteZone(signer.id);
-                            setSelected(null);
-                          }}
-                          className="absolute -top-2.5 -right-2.5 z-20 flex h-5 w-5 items-center justify-center rounded-full border border-white bg-red-600 text-white opacity-75 shadow transition hover:opacity-100"
-                        >
-                          <Trash size={10} />
-                        </button>
-                        {isSelected &&
-                          renderHandles("zone", signer.id, geometry)}
-                      </div>
-                    );
-                  })}
+                {/* Zones de signature */}
+                {localSigners.map((signer, i) => {
+                  if (signer.page !== pageIndex || signer.xPct === null || signer.yPct === null)
+                    return null;
+                  const zoneColor = ZONE_COLORS[i % ZONE_COLORS.length];
+                  const wPct = signer.widthPct ?? 0.26;
+                  const geometry: Geometry = {
+                    page: pageIndex,
+                    xPct: signer.xPct,
+                    yPct: signer.yPct,
+                    widthPct: wPct,
+                  };
+                  const isSelected = selected?.kind === "zone" && selected.id === signer.id;
 
-                  {/* Textes intégrés au PDF et champs des signataires */}
-                  {localFields
-                    .filter((f) => f.page === pageIndex)
-                    .map((field) => {
-                      const isPdfText = !field.signerId;
-                      const signerIndex = isPdfText
-                        ? -1
-                        : localSigners.findIndex((s) => s.id === field.signerId);
-                      const fieldColor =
-                        signerIndex >= 0
-                          ? ZONE_COLORS[signerIndex % ZONE_COLORS.length]
-                          : ZONE_COLORS[0];
-
-                      const geometry: Geometry = {
-                        page: pageIndex,
-                        xPct: field.xPct,
-                        yPct: field.yPct,
-                        widthPct: field.widthPct,
-                      };
-                      const isSelected =
-                        selected?.kind === "field" && selected.id === field.id;
-                      const isDimmed =
-                        !isPdfText && Boolean(selectedId) && field.signerId !== selectedId;
-
-                      if (isPdfText) {
-                        return (
-                          <div
-                            key={field.id}
-                            onPointerDown={(e) =>
-                              beginGesture("field", field.id, "move", "e", geometry, e)
-                            }
-                            onClick={(e) => e.stopPropagation()}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setSelected({ kind: "field", id: field.id });
-                              setMenu({ fieldId: field.id, x: e.clientX, y: e.clientY });
-                            }}
-                            onDoubleClick={(e) => {
-                              e.stopPropagation();
-                              const next = prompt(
-                                "Texte à inscrire directement sur le PDF :",
-                                field.presetValue || field.label
-                              );
-                              if (next !== null) {
-                                const val = next.trim();
-                                if (val) {
-                                  onPresetField(field.id, val);
-                                  onRenameField(field.id, val);
-                                }
-                              }
-                            }}
-                            className={`absolute z-10 cursor-move rounded px-2 py-0.5 text-xs border transition-shadow ${
-                              isSelected
-                                ? "border-solid border-slate-900 bg-white shadow-md ring-2 ring-slate-900/20"
-                                : "border-dashed border-slate-400 bg-white/70 hover:bg-white hover:border-slate-600"
-                            }`}
-                            style={{
-                              left: `${field.xPct * 100}%`,
-                              top: `${field.yPct * 100}%`,
-                              width: `${field.widthPct * 100}%`,
-                              minHeight: "22px",
-                              transform: "translateX(-50%)",
-                              touchAction: "none",
-                            }}
-                          >
-                            <div className="flex items-center justify-between gap-1 select-none">
-                              <span className="truncate font-sans text-[12px] font-medium text-slate-800 leading-snug">
-                                {field.presetValue || field.label}
-                              </span>
-                              <span
-                                className="shrink-0 text-[10px] text-slate-400"
-                                title="Texte intégré au PDF"
-                              >
-                                ✍️
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              title="Supprimer ce texte du PDF"
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onDeleteField(field.id);
-                                setSelected(null);
-                              }}
-                              className="absolute -top-2.5 -right-2.5 z-20 flex h-5 w-5 items-center justify-center rounded-full border border-white bg-red-600 text-white opacity-75 shadow transition hover:opacity-100"
-                            >
-                              <Trash size={10} />
-                            </button>
-                            {isSelected && renderHandles("field", field.id, geometry)}
-                          </div>
-                        );
+                  return (
+                    <div
+                      key={signer.id}
+                      onPointerDown={(e) =>
+                        beginGesture("zone", signer.id, "move", "e", geometry, e)
                       }
-
-                      return (
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelected({ kind: "zone", id: signer.id });
+                      }}
+                      className={`absolute z-10 ${zoneColor.border} ${
+                        isSelected ? "bg-teal-600/20" : zoneColor.bg
+                      } cursor-move rounded border-2 ${
+                        isSelected ? "border-solid border-slate-900 shadow-lg" : "border-dashed"
+                      }`}
+                      style={{
+                        left: `${signer.xPct * 100}%`,
+                        top: `${signer.yPct * 100}%`,
+                        width: `${wPct * 100}%`,
+                        height: `${wPct * 23.6}%`,
+                        transform: "translateX(-50%)",
+                        touchAction: "none",
+                      }}
+                    >
+                      {/* Mini barre d'action flottante sur sélection */}
+                      {isSelected && (
                         <div
-                          key={field.id}
-                          onPointerDown={(e) =>
-                            beginGesture("field", field.id, "move", "e", geometry, e)
-                          }
+                          className="absolute -top-7 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 shadow-md text-[11px]"
+                          onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => e.stopPropagation()}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setSelected({ kind: "field", id: field.id });
-                            setMenu({ fieldId: field.id, x: e.clientX, y: e.clientY });
-                          }}
-                          onDoubleClick={(e) => {
-                            e.stopPropagation();
-                            const next = prompt(`Nouveau libellé du champ :`, field.label);
-                            if (next === null) return;
-                            const label = next.trim();
-                            if (label && label !== field.label) onRenameField(field.id, label);
-                          }}
-                          className={`absolute z-10 ${fieldColor.border} ${fieldColor.bg} cursor-move rounded border border-dashed transition-opacity ${
-                            isDimmed ? "opacity-35 hover:opacity-100" : "opacity-100"
-                          } ${isSelected ? "!border-solid !border-slate-900 shadow-md ring-2 ring-slate-900/20" : ""}`}
-                          style={{
-                            left: `${field.xPct * 100}%`,
-                            top: `${field.yPct * 100}%`,
-                            width: `${field.widthPct * 100}%`,
-                            height: `${FIELD_HEIGHT_PCT[field.type]}%`,
-                            transform: "translateX(-50%)",
-                            touchAction: "none",
-                          }}
                         >
-                          <span
-                            className={`absolute -top-4 left-0 whitespace-nowrap rounded px-1 py-0.5 text-[9px] font-semibold ${fieldColor.text}`}
-                          >
-                            {field.label}{field.presetValue ? ` = "${field.presetValue}"` : ""}
-                          </span>
+                          <span className={`font-semibold ${zoneColor.text}`}>{signer.name}</span>
+                          <span className="text-slate-300">|</span>
                           <button
                             type="button"
-                            title="Supprimer le champ"
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onDeleteField(field.id);
+                            onClick={() => {
+                              onDeleteZone(signer.id);
                               setSelected(null);
                             }}
-                            className="absolute -top-2.5 -right-2.5 z-20 flex h-5 w-5 items-center justify-center rounded-full border border-white bg-red-600 text-white opacity-75 shadow transition hover:opacity-100"
+                            className="text-red-500 hover:text-red-700"
+                            title="Supprimer la zone de signature"
                           >
-                            <Trash size={10} />
+                            <Trash size={12} />
                           </button>
-                          {isSelected && renderHandles("field", field.id, geometry)}
                         </div>
-                      );
-                    })}
+                      )}
 
-                  {/* Zone de capture : placement (outil armé) ou désélection */}
-                  <div
-                    role="button"
-                    aria-label={`Zone de placement en page ${pageIndex + 1}`}
-                    className="absolute inset-0"
-                    style={{ cursor: tool ? "crosshair" : "default" }}
-                    onClick={(e) => handlePageClick(e, pageIndex)}
-                  />
-                </div>
-              );
-            })}
-          </Document>
-        )}
-      </div>
-
-      {/* Éléments placés */}
-      {(() => {
-        const pdfTexts = localFields.filter((f) => !f.signerId);
-        const signerFields = localFields.filter((f) => f.signerId);
-        if (pdfTexts.length === 0 && signerFields.length === 0) return null;
-
-        return (
-          <div className="mt-4 space-y-3">
-            {/* 1. Modifications du document — Textes intégrés au PDF */}
-            {pdfTexts.length > 0 && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">
-                    ✍️ Modifications du document — Textes intégrés au PDF ({pdfTexts.length})
-                  </p>
-                  <span className="text-[11px] text-slate-400">
-                    Inscrits directement dans le PDF final
-                  </span>
-                </div>
-                <ul className="mt-2 space-y-1.5">
-                  {pdfTexts.map((item) => (
-                    <li
-                      key={item.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"
-                    >
-                      <div className="flex min-w-0 flex-1 items-center gap-2">
-                        <span className="font-semibold text-slate-500 shrink-0">
-                          Page {item.page + 1} :
-                        </span>
-                        <input
-                          type="text"
-                          value={item.presetValue || item.label}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            onPresetField(item.id, val);
-                            onRenameField(item.id, val || "Texte PDF");
-                          }}
-                          placeholder="Texte à intégrer dans le PDF..."
-                          className="flex-1 rounded border border-slate-200 px-2.5 py-1 text-xs text-slate-800 outline-none focus:border-brand-600"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onDeleteField(item.id)}
-                        title="Supprimer ce texte"
-                        className="rounded p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600 shrink-0"
+                      <span
+                        className={`absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold ${zoneColor.text}`}
                       >
-                        <Trash size={14} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+                        {signer.name} — signature
+                      </span>
 
-            {/* 2. Champs à remplir par les signataires */}
-            {signerFields.length > 0 && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">
-                  Champs à remplir par les signataires ({signerFields.length})
-                </p>
-                <ul className="mt-2 space-y-1.5">
-                  {signerFields.map((field) => {
-                    const signerIndex = localSigners.findIndex((s) => s.id === field.signerId);
-                    const signer = signerIndex >= 0 ? localSigners[signerIndex] : null;
+                      {isSelected && renderHandles("zone", signer.id, geometry)}
+                    </div>
+                  );
+                })}
+
+                {/* Champs et textes interactifs */}
+                {localFields
+                  .filter((f) => f.page === pageIndex)
+                  .map((field) => {
+                    const isPdfText = !field.signerId;
+                    const signerIndex = isPdfText
+                      ? -1
+                      : localSigners.findIndex((s) => s.id === field.signerId);
                     const fieldColor =
                       signerIndex >= 0
                         ? ZONE_COLORS[signerIndex % ZONE_COLORS.length]
                         : ZONE_COLORS[0];
-                    return (
-                      <li key={field.id} className="text-[13px]">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="min-w-0 truncate text-slate-600">
-                            <span className={`font-semibold ${fieldColor.text}`}>
-                              {signer?.name ?? "Signataire"}
-                            </span>{" "}
-                            — {field.label}{" "}
-                            <span className="text-slate-400">
-                              ({TYPE_LABEL[field.type]}
-                              {field.type === "select" ? ` : ${field.options.join(", ")}` : ""} · page{" "}
-                              {field.page + 1}
-                              {field.presetValue ? ` · prérempli : « ${field.presetValue} »` : ""})
-                            </span>
-                          </span>
-                          <span className="flex shrink-0 items-center gap-1.5">
-                            <select
-                              value={field.signerId ?? ""}
-                              onChange={(e) => onReassignField(field.id, e.target.value)}
-                              title="Attribuer à un autre signataire"
-                              className="rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs text-slate-600 outline-none focus:border-brand-600"
+
+                    const geometry: Geometry = {
+                      page: pageIndex,
+                      xPct: field.xPct,
+                      yPct: field.yPct,
+                      widthPct: field.widthPct,
+                    };
+                    const isSelected = selected?.kind === "field" && selected.id === field.id;
+                    const isInline = inlineEditingId === field.id;
+
+                    // 1. TEXTE INTÉGRÉ DIRECTEMENT DANS LE PDF
+                    if (isPdfText) {
+                      return (
+                        <div
+                          key={field.id}
+                          onPointerDown={(e) => {
+                            if (!isInline) beginGesture("field", field.id, "move", "e", geometry, e);
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelected({ kind: "field", id: field.id });
+                          }}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            startInlineEdit(field.id, field.presetValue || field.label);
+                          }}
+                          className={`absolute z-10 rounded px-2 py-0.5 text-xs transition-shadow ${
+                            isInline
+                              ? "z-30 ring-2 ring-brand-500 bg-white"
+                              : isSelected
+                              ? "cursor-move border border-solid border-slate-900 bg-white shadow-lg ring-2 ring-slate-900/10"
+                              : "cursor-move border border-dashed border-slate-400/80 bg-white/80 hover:bg-white hover:border-slate-600"
+                          }`}
+                          style={{
+                            left: `${field.xPct * 100}%`,
+                            top: `${field.yPct * 100}%`,
+                            width: `${field.widthPct * 100}%`,
+                            minHeight: "24px",
+                            transform: "translateX(-50%)",
+                            touchAction: "none",
+                          }}
+                        >
+                          {/* Mini barre d'action sur sélection */}
+                          {isSelected && !isInline && (
+                            <div
+                              className="absolute -top-7 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-0.5 shadow-md text-[11px] whitespace-nowrap"
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onClick={(e) => e.stopPropagation()}
                             >
-                              {localSigners.map((s, si) => (
-                                <option key={s.id} value={s.id}>
-                                  {s.name || `Signataire ${si + 1}`}
-                                </option>
-                              ))}
-                            </select>
+                              <button
+                                type="button"
+                                onClick={() => startInlineEdit(field.id, field.presetValue || field.label)}
+                                className="flex items-center gap-1 font-medium text-slate-700 hover:text-brand-600"
+                              >
+                                <PencilSimple size={12} />
+                                <span>Modifier</span>
+                              </button>
+                              <span className="text-slate-300">|</span>
+                              <button
+                                type="button"
+                                onClick={() => openFieldModal(field)}
+                                className="font-medium text-slate-500 hover:text-slate-800"
+                              >
+                                Paramètres
+                              </button>
+                              <span className="text-slate-300">|</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onDeleteField(field.id);
+                                  setSelected(null);
+                                }}
+                                className="text-red-500 hover:text-red-700"
+                                title="Supprimer ce texte"
+                              >
+                                <Trash size={12} />
+                              </button>
+                            </div>
+                          )}
+
+                          {isInline ? (
+                            <input
+                              ref={inlineInputRef}
+                              type="text"
+                              value={inlineValue}
+                              onChange={(e) => setInlineValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  commitInlineEdit();
+                                }
+                              }}
+                              onBlur={commitInlineEdit}
+                              placeholder="Écrivez votre texte..."
+                              className="w-full bg-transparent font-sans text-[12px] font-medium text-slate-900 outline-none"
+                            />
+                          ) : (
+                            <div className="flex items-center justify-between gap-1 select-none">
+                              <span className="truncate font-sans text-[12px] font-medium text-slate-900 leading-snug">
+                                {field.presetValue || field.label}
+                              </span>
+                              <span
+                                className="shrink-0 text-[10px] text-slate-400"
+                                title="Double-cliquez pour éditer"
+                              >
+                                ✍️
+                              </span>
+                            </div>
+                          )}
+
+                          {isSelected && !isInline && renderHandles("field", field.id, geometry)}
+                        </div>
+                      );
+                    }
+
+                    // 2. CHAMP INTERACTIF POUR UN SIGNATAIRE
+                    return (
+                      <div
+                        key={field.id}
+                        onPointerDown={(e) =>
+                          beginGesture("field", field.id, "move", "e", geometry, e)
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelected({ kind: "field", id: field.id });
+                        }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          openFieldModal(field);
+                        }}
+                        className={`absolute z-10 ${fieldColor.border} ${fieldColor.bg} cursor-move rounded border border-dashed transition-shadow ${
+                          isSelected ? "!border-solid !border-slate-900 shadow-md ring-2 ring-slate-900/10" : ""
+                        }`}
+                        style={{
+                          left: `${field.xPct * 100}%`,
+                          top: `${field.yPct * 100}%`,
+                          width: `${field.widthPct * 100}%`,
+                          height: `${FIELD_HEIGHT_PCT[field.type]}%`,
+                          transform: "translateX(-50%)",
+                          touchAction: "none",
+                        }}
+                      >
+                        {/* Mini barre d'action sur sélection */}
+                        {isSelected && (
+                          <div
+                            className="absolute -top-7 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-0.5 shadow-md text-[11px] whitespace-nowrap"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span className="font-semibold text-slate-700">{field.label}</span>
+                            <span className="text-slate-300">|</span>
                             <button
                               type="button"
-                              onClick={() => startEditField(field.id)}
-                              title="Modifier le champ (libellé, type, préremplissage)"
-                              className={`rounded-md p-1 transition ${
-                                editingFieldId === field.id
-                                  ? "bg-slate-900 text-white"
-                                  : "text-slate-300 hover:bg-white hover:text-slate-700"
-                              }`}
+                              onClick={() => openFieldModal(field)}
+                              className="flex items-center gap-1 font-medium text-slate-700 hover:text-brand-600"
                             >
-                              <PencilSimple size={13} />
+                              <PencilSimple size={12} />
+                              <span>Modifier</span>
                             </button>
+                            <span className="text-slate-300">|</span>
                             <button
                               type="button"
                               onClick={() => {
                                 onDeleteField(field.id);
-                                setEditingFieldId((cur) => (cur === field.id ? null : cur));
+                                setSelected(null);
                               }}
-                              title="Supprimer le champ"
-                              className="rounded-md p-1 text-slate-300 transition hover:bg-white hover:text-red-600"
+                              className="text-red-500 hover:text-red-700"
+                              title="Supprimer ce champ"
                             >
-                              <Trash size={13} />
+                              <Trash size={12} />
                             </button>
-                          </span>
-                        </div>
-
-                        {editingFieldId === field.id && editDraft && (
-                          <div className="mt-2 grid gap-2.5 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-2">
-                            <label className="text-xs text-slate-500 sm:col-span-2">
-                              Libellé
-                              <input
-                                value={editDraft.label}
-                                onChange={(e) =>
-                                  setEditDraft({ ...editDraft, label: e.target.value })
-                                }
-                                className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-brand-600"
-                              />
-                            </label>
-                            <label className="text-xs text-slate-500">
-                              Type
-                              <select
-                                value={editDraft.type}
-                                onChange={(e) =>
-                                  setEditDraft({ ...editDraft, type: e.target.value as FieldType })
-                                }
-                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-brand-600"
-                              >
-                                {FIELD_TOOLS.map((t) => (
-                                  <option key={t.type} value={t.type}>
-                                    {t.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            {editDraft.type === "select" ? (
-                              <label className="text-xs text-slate-500">
-                                Options (séparées par des virgules)
-                                <input
-                                  value={editDraft.options}
-                                  onChange={(e) =>
-                                    setEditDraft({ ...editDraft, options: e.target.value })
-                                  }
-                                  className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-brand-600"
-                                />
-                              </label>
-                            ) : editDraft.type === "checkbox" ? null : (
-                              <label className="text-xs text-slate-500">
-                                Valeur préremplie (optionnel)
-                                <input
-                                  value={editDraft.preset}
-                                  onChange={(e) =>
-                                    setEditDraft({ ...editDraft, preset: e.target.value })
-                                  }
-                                  className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-brand-600"
-                                />
-                              </label>
-                            )}
-                            <div className="flex items-center justify-end gap-2 sm:col-span-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingFieldId(null);
-                                  setEditDraft(null);
-                                }}
-                                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800"
-                              >
-                                Annuler
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => saveEditField(field.id)}
-                                disabled={!editDraft.label.trim()}
-                                className="rounded-lg bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-700 disabled:opacity-40"
-                              >
-                                Enregistrer
-                              </button>
-                            </div>
                           </div>
                         )}
-                      </li>
+
+                        <span
+                          className={`absolute -top-4 left-0 whitespace-nowrap rounded px-1 py-0.5 text-[9px] font-semibold ${fieldColor.text}`}
+                        >
+                          {field.label}{field.presetValue ? ` = "${field.presetValue}"` : ""}
+                        </span>
+
+                        {isSelected && renderHandles("field", field.id, geometry)}
+                      </div>
                     );
                   })}
-                </ul>
-              </div>
-            )}
-          </div>
-        );
-      })()}
 
-      {/* Menu contextuel */}
-      {menu &&
-        (() => {
-          const field = localFields.find((f) => f.id === menu.fieldId);
-          if (!field) return null;
-          const isPdfText = !field.signerId;
-          const menuW = 230;
-          const menuH = localSigners.length * 42 + 160;
-          const left = Math.min(menu.x, window.innerWidth - menuW - 10);
-          const top = Math.min(menu.y, window.innerHeight - menuH - 10);
-          return (
-            <>
-              <div
-                className="fixed inset-0 z-40"
-                onPointerDown={() => setMenu(null)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setMenu(null);
-                }}
-              />
-              <div
-                className="fixed z-50 w-[230px] overflow-hidden rounded-xl border border-slate-200 bg-white py-1.5 shadow-lg"
-                style={{ left, top }}
-              >
-                <div className="flex w-full items-center gap-2.5 px-3 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                  <span className="truncate">
-                    {isPdfText ? "Texte PDF" : field.label}
-                  </span>
-                  {!isPdfText && (
-                    <>
-                      <span className="shrink-0 text-slate-300">·</span>
-                      <span className="shrink-0 normal-case text-slate-300">
-                        {TYPE_LABEL[field.type]}
-                      </span>
-                    </>
-                  )}
-                </div>
-
-                {isPdfText ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = prompt(
-                        "Texte à inscrire directement sur le PDF :",
-                        field.presetValue || field.label
-                      );
-                      if (next !== null) {
-                        const val = next.trim();
-                        if (val) {
-                          onPresetField(field.id, val);
-                          onRenameField(field.id, val);
-                        }
-                      }
-                      setMenu(null);
+                {/* Zone de saisie directe pour nouveau texte */}
+                {pendingNewText && pendingNewText.page === pageIndex && (
+                  <div
+                    className="absolute z-40 rounded-lg border-2 border-brand-500 bg-white px-2.5 py-1.5 shadow-2xl ring-4 ring-brand-500/20"
+                    style={{
+                      left: `${pendingNewText.xPct * 100}%`,
+                      top: `${pendingNewText.yPct * 100}%`,
+                      width: `${pendingNewText.widthPct * 100}%`,
+                      minWidth: "200px",
+                      transform: "translateX(-50%)",
                     }}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
                   >
-                    <PencilSimple size={14} className="text-slate-400" /> Modifier le texte
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => renameFieldPrompt(field.id)}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <PencilSimple size={14} className="text-slate-400" /> Renommer
-                  </button>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        ref={pendingInputRef}
+                        type="text"
+                        autoFocus
+                        value={pendingNewText.text}
+                        onChange={(e) =>
+                          setPendingNewText({ ...pendingNewText, text: e.target.value })
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitPendingNewText();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            cancelPendingNewText();
+                          }
+                        }}
+                        onBlur={commitPendingNewText}
+                        placeholder="Écrivez votre texte ici..."
+                        className="w-full bg-transparent font-sans text-xs font-semibold text-slate-900 outline-none placeholder:font-normal placeholder:text-slate-400"
+                      />
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          commitPendingNewText();
+                        }}
+                        className="flex items-center gap-0.5 rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-brand-700"
+                        title="Valider"
+                      >
+                        <Check size={11} weight="bold" />
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          cancelPendingNewText();
+                        }}
+                        className="rounded p-0.5 text-slate-400 hover:text-slate-600"
+                        title="Annuler"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-[9px] text-slate-400 select-none">
+                      <span>↵ Entrée pour valider</span>
+                      <span>Échap pour annuler</span>
+                    </div>
+                  </div>
                 )}
 
-                <div className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
-                  Attribuer à
-                </div>
-                {localSigners.map((signer, i) => {
-                  const current = field.signerId === signer.id;
-                  return (
-                    <button
-                      key={signer.id}
-                      type="button"
-                      onClick={() => {
-                        onReassignField(field.id, signer.id);
-                        setMenu(null);
-                      }}
-                      className={`flex w-full items-center gap-2.5 px-3 py-2 text-sm transition hover:bg-slate-50 ${
-                        current ? "bg-brand-50/60 font-semibold text-brand-900" : "text-slate-700"
-                      }`}
-                    >
-                      <span
-                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                          ZONE_COLORS[i % ZONE_COLORS.length].border.replace("border-", "bg-")
+                {/* Zone de capture cliquable pour placement de nouvel élément */}
+                <div
+                  role="button"
+                  tabIndex={-1}
+                  aria-label={`Zone de placement en page ${pageIndex + 1}`}
+                  className="absolute inset-0"
+                  style={{
+                    cursor: tool === "pdf_text" ? "text" : tool ? "crosshair" : "default",
+                  }}
+                  onClick={(e) => handlePageClick(e, pageIndex)}
+                  onDoubleClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const xPct = clampX((e.clientX - rect.left) / rect.width);
+                    const yPct = clampY((e.clientY - rect.top) / rect.height);
+                    setPendingNewText({
+                      page: pageIndex,
+                      xPct,
+                      yPct,
+                      widthPct: 0.24,
+                      text: "",
+                    });
+                    setTool(null);
+                  }}
+                />
+              </div>
+            ))}
+          </Document>
+        )}
+      </div>
+
+      {/* 4. Modal épuré pour modifier un champ (remplace window.prompt) */}
+      {modalField && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl animate-fadeIn"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-semibold text-slate-900">
+                {modalField.signerId ? "Propriétés du champ" : "Texte intégré au PDF"}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setModalField(null)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3.5">
+              <div>
+                <label className="block text-xs font-medium text-slate-700">
+                  {modalField.signerId ? "Libellé du champ" : "Texte à inscrire"}
+                </label>
+                <input
+                  type="text"
+                  value={modalDraft.label}
+                  onChange={(e) => setModalDraft({ ...modalDraft, label: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600"
+                  autoFocus
+                />
+              </div>
+
+              {modalField.signerId && (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700">Type de champ</label>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {FIELD_TOOLS.map((t) => (
+                        <button
+                          key={t.type}
+                          type="button"
+                          onClick={() => setModalDraft({ ...modalDraft, type: t.type })}
+                          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+                            modalDraft.type === t.type
+                              ? "border-slate-900 bg-slate-900 text-white"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700">
+                      Valeur préremplie (optionnel)
+                    </label>
+                    <input
+                      type="text"
+                      value={modalDraft.preset}
+                      onChange={(e) => setModalDraft({ ...modalDraft, preset: e.target.value })}
+                      placeholder="Laisser vide si à remplir par le signataire"
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700">Attribution</label>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {localSigners.map((s, i) => {
+                        const color = ZONE_COLORS[i % ZONE_COLORS.length];
+                        const active = modalDraft.signerId === s.id;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => setModalDraft({ ...modalDraft, signerId: s.id })}
+                            className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+                              active
+                                ? `${color.border} ${color.bg} ${color.text} font-semibold shadow-xs`
+                                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                            }`}
+                          >
+                            {s.name}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => setModalDraft({ ...modalDraft, signerId: null })}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+                          modalDraft.signerId === null
+                            ? "border-slate-900 bg-slate-900 text-white font-semibold"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                         }`}
-                      />
-                      <span className="truncate">{signer.name}</span>
-                      {current && (
-                        <Check size={14} className="ml-auto shrink-0 text-brand-700" weight="bold" />
-                      )}
-                    </button>
+                      >
+                        Texte direct (PDF)
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                onClick={() => setModalField(null)}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={saveModalField}
+                disabled={!modalDraft.label.trim()}
+                className="rounded-lg bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-40"
+              >
+                Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Accordéon récapitulatif compact */}
+      {localFields.length > 0 && (
+        <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <button
+            type="button"
+            onClick={() => setShowSummary((prev) => !prev)}
+            className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
+          >
+            <div className="flex items-center gap-2">
+              {showSummary ? <CaretDown size={14} /> : <CaretRight size={14} />}
+              <span>📋 Éléments et champs placés sur le document ({localFields.length})</span>
+            </div>
+            <span className="text-[11px] text-slate-400">
+              {showSummary ? "Replier" : "Voir la liste"}
+            </span>
+          </button>
+
+          {showSummary && (
+            <div className="border-t border-slate-100 p-3 bg-slate-50/50">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {localFields.map((f) => {
+                  const signer = localSigners.find((s) => s.id === f.signerId);
+                  return (
+                    <div
+                      key={f.id}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-slate-800 truncate">
+                            {f.label}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            (Page {f.page + 1})
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {f.signerId ? `Signataire : ${signer?.name || "Assigné"}` : "✍️ Texte intégré au PDF"}
+                          {f.presetValue ? ` • "${f.presetValue}"` : ""}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => openFieldModal(f)}
+                          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          title="Modifier"
+                        >
+                          <PencilSimple size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteField(f.id)}
+                          className="rounded p-1 text-red-500 hover:bg-red-50"
+                          title="Supprimer"
+                        >
+                          <Trash size={14} />
+                        </button>
+                      </div>
+                    </div>
                   );
                 })}
-                <div className="my-1 border-t border-slate-100" />
-                {!isPdfText && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = prompt(
-                        `Valeur préremplie pour « ${field.label} » (vide = laisser au signataire) :`,
-                        field.presetValue
-                      );
-                      if (next === null) return;
-                      onPresetField(field.id, next.trim());
-                      setMenu(null);
-                    }}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <PencilSimple size={14} className="text-slate-400" />
-                    {field.presetValue ? "Modifier la valeur préremplie" : "Préremplir la valeur"}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    onDeleteField(field.id);
-                    setMenu(null);
-                  }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-red-600 transition hover:bg-red-50"
-                >
-                  <Trash size={14} /> Supprimer
-                </button>
               </div>
-            </>
-          );
-        })()}
+            </div>
+          )}
+        </div>
+      )}
 
-      <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
+      <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-400">
         <Eraser size={12} className="text-slate-400" />
-        Choisissez un outil puis cliquez sur le PDF pour placer. Utilisez « Modifier le PDF » pour
-        inscrire du texte directement dans le document. Cliquez sur un élément pour le déplacer ou
-        le redimensionner.
+        Double-cliquez sur un texte pour l'éditer en direct sur le PDF. Cliquez pour déplacer ou utiliser les poignées pour redimensionner.
       </p>
     </div>
   );

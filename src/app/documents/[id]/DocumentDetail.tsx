@@ -664,11 +664,11 @@ export default function DocumentDetail({
                   type="button"
                   onClick={detectFields}
                   disabled={busy !== null}
-                  title="Analyser le PDF et proposer les champs automatiquement (100 % local)"
+                  title="Détecter intelligemment les champs et signatures avec l'IA Qwen"
                   className="flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1.5 text-xs font-medium text-brand-800 transition hover:bg-brand-100 disabled:opacity-50"
                 >
                   <MagicWand size={13} />
-                  {busy === "detect" ? "Analyse…" : "Détecter automatiquement"}
+                  {busy === "detect" ? "Analyse IA (Qwen)..." : "✨ Détecter les champs (IA Qwen)"}
                 </button>
                 <span className="hidden items-center gap-1.5 text-xs text-slate-400 sm:flex">
                   <CursorClick size={13} /> cliquez pour placer
