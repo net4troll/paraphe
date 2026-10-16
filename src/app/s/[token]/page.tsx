@@ -13,10 +13,19 @@ export default async function SignPage({ params }: { params: Promise<{ token: st
   });
   if (!signer) notFound();
 
-  const fields = await db.field.findMany({
-    where: { signerId: signer.id },
+  const allFields = await db.field.findMany({
+    where: {
+      documentId: signer.documentId,
+      OR: [
+        { signerId: signer.id },
+        { presetValue: { not: null } },
+      ],
+    },
     orderBy: { createdAt: "asc" },
   });
+  const fields = allFields.filter(
+    (f) => f.signerId === signer.id || (f.presetValue && f.presetValue.trim() !== "")
+  );
 
   return (
     <SigningClient

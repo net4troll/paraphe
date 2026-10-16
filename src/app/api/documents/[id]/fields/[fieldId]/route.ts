@@ -8,7 +8,7 @@ type RouteContext = { params: Promise<{ id: string; fieldId: string }> };
 const FIELD_TYPES = ["text", "textarea", "date", "number", "checkbox", "select"] as const;
 
 const patchSchema = z.object({
-  signerId: z.string().min(1).optional(),
+  signerId: z.string().trim().nullable().optional(),
   label: z.string().trim().min(1).max(80).optional(),
   type: z.enum(FIELD_TYPES).optional(),
   options: z.array(z.string().trim().min(1).max(60)).min(1).max(10).nullable().optional(),
@@ -19,7 +19,7 @@ const patchSchema = z.object({
   widthPct: z.number().min(0.1).max(0.6).optional(),
 });
 
-/** Réassigne un champ à un autre signataire (brouillon uniquement). */
+/** Réassigne un champ à un autre signataire ou le rend commun (brouillon uniquement). */
 export async function PATCH(request: Request, { params }: RouteContext) {
   if (!(await isAdmin())) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -44,11 +44,18 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       { status: 409 }
     );
   }
-  const signer = parsed.data.signerId
-    ? document.signers.find((s) => s.id === parsed.data.signerId)
-    : undefined;
-  if (parsed.data.signerId && !signer) {
-    return NextResponse.json({ error: "Signataire introuvable" }, { status: 404 });
+  let targetSignerId: string | null | undefined = undefined;
+  if (parsed.data.signerId !== undefined) {
+    const raw = parsed.data.signerId?.trim();
+    if (!raw || raw === "common") {
+      targetSignerId = null;
+    } else {
+      const signer = document.signers.find((s) => s.id === raw);
+      if (!signer) {
+        return NextResponse.json({ error: "Signataire introuvable" }, { status: 404 });
+      }
+      targetSignerId = signer.id;
+    }
   }
 
   const field = await db.field.findUnique({ where: { id: fieldId } });
@@ -83,7 +90,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   await db.field.update({
     where: { id: fieldId },
     data: {
-      ...(signer ? { signerId: signer.id } : {}),
+      ...(targetSignerId !== undefined ? { signerId: targetSignerId } : {}),
       ...(parsed.data.label !== undefined ? { label: parsed.data.label } : {}),
       ...(parsed.data.type !== undefined ? { type: parsed.data.type } : {}),
       ...(parsed.data.options !== undefined || parsed.data.type !== undefined

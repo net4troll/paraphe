@@ -122,10 +122,11 @@ export default function PdfFillableViewer({
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
                 />
-                {pageFields.map((field) => {
-                  const preset = field.presetValue;
-                  const value = preset || String(values[field.id] ?? "");
-                  const filled = preset ? true : String(values[field.id] ?? "").trim() !== "";
+                {pageFields
+                  .filter((f) => !f.presetValue)
+                  .map((field) => {
+                    const value = String(values[field.id] ?? "");
+                    const filled = value.trim() !== "";
                   const hPct = HEIGHT_PCT[field.type] ?? 2.6;
                   const common = {
                     "data-field-input": field.id,
@@ -139,12 +140,12 @@ export default function PdfFillableViewer({
                   };
 
                   if (field.type === "checkbox") {
-                    const checked = preset ? preset === "true" : values[field.id] === true;
+                    const checked = values[field.id] === true;
                     return (
                       <div key={field.id} {...common} className="absolute" title={field.label}>
                         <button
                           type="button"
-                          onClick={() => !preset && onChange(field.id, !checked)}
+                          onClick={() => onChange(field.id, !checked)}
                           className={`flex h-full w-full items-center justify-center rounded-[3px] transition ${
                             checked
                               ? "border border-brand-600 bg-brand-600/15 text-brand-700"
@@ -165,7 +166,6 @@ export default function PdfFillableViewer({
                           title={field.label}
                           placeholder={field.label}
                           value={value}
-                          disabled={Boolean(preset)}
                           onChange={(e) => onChange(field.id, e.target.value)}
                           className={`${inputClasses(filled)} resize-none leading-snug`}
                         />
@@ -173,7 +173,6 @@ export default function PdfFillableViewer({
                         <select
                           title={field.label}
                           value={value}
-                          disabled={Boolean(preset)}
                           onChange={(e) => onChange(field.id, e.target.value)}
                           className={`${inputClasses(filled)} ${
                             value ? "" : "text-slate-400"
@@ -193,7 +192,6 @@ export default function PdfFillableViewer({
                           title={field.label}
                           placeholder={field.label}
                           value={value}
-                          disabled={Boolean(preset)}
                           onChange={(e) => onChange(field.id, e.target.value)}
                           className={inputClasses(filled)}
                         />

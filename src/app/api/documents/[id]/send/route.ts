@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import fs from "fs/promises";
 import { db } from "@/lib/db";
 import { isAdmin } from "@/lib/auth";
-import { readStoredFile } from "@/lib/storage";
+import { readStoredFile, versionPath, ensureDocumentDir } from "@/lib/storage";
+import { stampFieldValues, type FieldToStamp } from "@/lib/signing/stamp-fields";
 import { sendFinalPdf, sendInvitations, pdfFileName } from "@/lib/notify";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -45,6 +47,52 @@ export async function POST(request: Request, { params }: RouteContext) {
       );
     }
 
+    // Vérification des champs non assignés : ils doivent impérativement être préremplis
+    const unassignedEmpty = await db.field.findMany({
+      where: {
+        documentId: id,
+        signerId: null,
+        OR: [{ presetValue: null }, { presetValue: "" }],
+      },
+    });
+    if (unassignedEmpty.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Certains champs ne sont ni assignés ni préremplis : ${unassignedEmpty
+            .map((f) => f.label)
+            .join(", ")}. Attribuez-les à un signataire ou préremplissez-les.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Tamponnage préalable de tous les champs préremplis par l'admin sur le PDF de base
+    const presetFields = await db.field.findMany({
+      where: {
+        documentId: id,
+        presetValue: { not: null },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    const validPresets = presetFields.filter((f) => f.presetValue && f.presetValue.trim() !== "");
+    let nextCurrentPath = document.originalPath;
+    if (validPresets.length > 0) {
+      const fieldsToStamp: FieldToStamp[] = validPresets.map((f) => ({
+        type: f.type,
+        label: f.label,
+        value: f.type === "checkbox" ? f.presetValue === "true" : f.presetValue!,
+        page: f.page,
+        xPct: f.xPct,
+        yPct: f.yPct,
+        widthPct: f.widthPct,
+      }));
+      const base = await readStoredFile(document.originalPath);
+      const stampedPdf = await stampFieldValues(base, fieldsToStamp);
+      nextCurrentPath = versionPath(document.id, 0);
+      await ensureDocumentDir(document.id);
+      await fs.writeFile(nextCurrentPath, stampedPdf);
+    }
+
     const results = await sendInvitations(document);
     const failed = results.filter((r) => !r.sent && !r.skipped);
     if (failed.length > 0) {
@@ -58,7 +106,10 @@ export async function POST(request: Request, { params }: RouteContext) {
         { status: 502 }
       );
     }
-    await db.document.update({ where: { id }, data: { status: "pending" } });
+    await db.document.update({
+      where: { id },
+      data: { currentPath: nextCurrentPath, status: "pending" },
+    });
     const noEmail = results.length === 0;
     const smtpSkipped = results.some((r) => r.skipped);
     return NextResponse.json({

@@ -108,10 +108,11 @@ export default function SigningClient(props: Props) {
   const remainingFields = requiredFields.filter(
     (f) => (f.type === "checkbox" ? values[f.id] !== true : String(values[f.id] ?? "").trim() === "")
   );
+  const hasFieldsToFill = requiredFields.length > 0;
   const fieldsFilled = remainingFields.length === 0;
 
   const missing: string[] = [];
-  if (props.fields.length > 0 && !fieldsFilled) missing.push("champs à compléter");
+  if (hasFieldsToFill && !fieldsFilled) missing.push("champs à compléter");
   if (!hasInk) missing.push("votre signature");
   if (!name.trim()) missing.push("votre nom");
   if (!consent) missing.push("le consentement");
@@ -234,7 +235,12 @@ export default function SigningClient(props: Props) {
   }
 
   const steps = [
-    { n: 1, label: "Lire et compléter", done: docRead && fieldsFilled, ref: docSectionRef },
+    {
+      n: 1,
+      label: hasFieldsToFill ? "Lire et compléter" : "Lire le document",
+      done: docRead && fieldsFilled,
+      ref: docSectionRef,
+    },
     { n: 2, label: "Signer", done: false, ref: signSectionRef },
   ];
 
@@ -337,11 +343,13 @@ export default function SigningClient(props: Props) {
             ref={docSectionRef}
             className="scroll-mt-24 overflow-hidden rounded-2xl border border-slate-200 bg-white"
           >
-            <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3 text-xs text-slate-400">
-              <FileText size={13} />
-              {fieldsFilled
-                ? "Document complété — vérifiez puis signez"
-                : "Complétez les champs directement dans le document (surlignés en pointillés)"}
+            <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3 text-xs text-slate-500">
+              <FileText size={14} className="text-slate-400" />
+              {hasFieldsToFill
+                ? fieldsFilled
+                  ? "Tous les champs sont complétés — vérifiez puis signez"
+                  : "Complétez les champs requis dans le document (surlignés en pointillés)"
+                : "Document pré-rempli par l'expéditeur — vérifiez le contenu avant d'apposer votre signature"}
             </div>
             <div key={pdfVersion}>
               <PdfFillableViewer
@@ -357,11 +365,11 @@ export default function SigningClient(props: Props) {
 
           {/* Rail : récapitulatif + signature */}
           <aside className="space-y-4">
-            {props.fields.length > 0 && (
-              <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            {hasFieldsToFill ? (
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
                 <h3 className="flex items-center justify-between text-sm font-semibold text-slate-900">
                   <span className="flex items-center gap-2">
-                    <ListChecks size={16} className="text-brand-700" /> Champs du document
+                    <ListChecks size={16} className="text-brand-700" /> Champs à compléter
                   </span>
                   <span
                     className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${
@@ -372,18 +380,15 @@ export default function SigningClient(props: Props) {
                   >
                     {fieldsFilled
                       ? "terminé ✓"
-                      : `${remainingFields.length} restant(s)`
-                    }
+                      : `${remainingFields.length} restant(s)`}
                   </span>
                 </h3>
                 <ul className="mt-3 space-y-1">
-                  {props.fields.map((field) => {
-                    const preset = Boolean(field.presetValue);
+                  {requiredFields.map((field) => {
                     const filled =
-                      preset ||
-                      (field.type === "checkbox"
+                      field.type === "checkbox"
                         ? values[field.id] === true
-                        : String(values[field.id] ?? "").trim() !== "");
+                        : String(values[field.id] ?? "").trim() !== "";
                     return (
                       <li key={field.id}>
                         <button
@@ -402,16 +407,11 @@ export default function SigningClient(props: Props) {
                           )}
                           <span
                             className={`min-w-0 flex-1 truncate ${
-                              filled ? "text-slate-400 line-through" : "text-slate-600"
+                              filled ? "text-slate-400 line-through" : "text-slate-700 font-medium"
                             }`}
                           >
                             {field.label}
                           </span>
-                          {preset && (
-                            <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-400">
-                              prérempli
-                            </span>
-                          )}
                         </button>
                       </li>
                     );
@@ -421,7 +421,17 @@ export default function SigningClient(props: Props) {
                   Cliquez sur un champ pour y accéder directement dans le document.
                 </p>
               </section>
-            )}
+            ) : props.fields.length > 0 ? (
+              <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-xs text-emerald-900 shadow-xs">
+                <SealCheck size={22} className="shrink-0 text-emerald-600" />
+                <div className="leading-relaxed">
+                  <p className="font-semibold text-emerald-950">Champs déjà complétés</p>
+                  <p className="text-emerald-700/90">
+                    L&apos;expéditeur a déjà pré-rempli toutes les informations. Vous pouvez apposer directement votre signature ci-dessous.
+                  </p>
+                </div>
+              </div>
+            ) : null}
 
             <section
               ref={signSectionRef}

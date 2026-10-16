@@ -75,8 +75,8 @@ model Field {
   id         String    @id @default(uuid())
   documentId String
   document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  signerId   String
-  signer     Signer    @relation(fields: [signerId], references: [id], onDelete: Cascade)
+  signerId   String?
+  signer     Signer?   @relation(fields: [signerId], references: [id], onDelete: Cascade)
   label      String
   type       FieldType @default(text)
   options    String?

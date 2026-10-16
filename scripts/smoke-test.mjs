@@ -155,20 +155,22 @@ async function main() {
   }
 
   // 3 bis. Champs à remplir par les signataires (tous types)
-  log("3 bis. Création des champs (nombre, case, texte)");
+  log("3 bis. Création des champs (nombre, case, texte, et champ commun prérempli)");
   const fieldDefs = [
     { signerIndex: 0, label: "Montant du contrat", type: "number", xPct: 0.3, yPct: 0.55 },
     { signerIndex: 0, label: "Conditions acceptées", type: "checkbox", xPct: 0.3, yPct: 0.62 },
     { signerIndex: 1, label: "Ville d'exercice", type: "text", xPct: 0.72, yPct: 0.55 },
+    { signerIndex: null, label: "Référence contrat", type: "text", presetValue: "CTR-2026-001", xPct: 0.5, yPct: 0.2 },
   ];
   for (const def of fieldDefs) {
     const res = await api(`/api/documents/${docId}/fields`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        signerId: doc.signers[def.signerIndex].id,
+        signerId: def.signerIndex !== null ? doc.signers[def.signerIndex].id : null,
         label: def.label,
         type: def.type,
+        presetValue: def.presetValue,
         page: 0,
         xPct: def.xPct,
         yPct: def.yPct,
@@ -197,9 +199,10 @@ async function main() {
   const freshDoc = await (await api(`/api/documents/${docId}`)).json();
   const signers = freshDoc.signers;
   const fields = freshDoc.fields;
-  assert.equal(fields.length, 3, "3 champs attendus");
+  assert.equal(fields.length, 4, "4 champs attendus");
   const valuesBySigner = new Map(signers.map((s) => [s.id, {}]));
   for (const field of fields) {
+    if (!field.signerId) continue;
     const vals = valuesBySigner.get(field.signerId);
     if (field.type === "checkbox") vals[field.id] = true;
     else if (field.type === "number") vals[field.id] = "12500,50";

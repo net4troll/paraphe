@@ -90,6 +90,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     orderBy: { createdAt: "asc" },
   });
   const fieldsToStamp: FieldToStamp[] = [];
+  const presetFieldsToStamp: FieldToStamp[] = [];
   for (const field of signerFields) {
     const raw = parsed.data.values[field.id];
     const label = field.label;
@@ -97,7 +98,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     // Champ prérempli par l'admin : valeur fixe, non exigée du signataire.
     const preset = field.presetValue?.trim() ?? "";
     if (preset) {
-      fieldsToStamp.push({
+      presetFieldsToStamp.push({
         type: field.type,
         label,
         value: field.type === "checkbox" ? preset === "true" : preset,
@@ -187,7 +188,11 @@ export async function POST(request: Request, { params }: RouteContext) {
       const signedCount = fresh.signers.filter((s) => s.status === "signed").length;
       const base = await readStoredFile(fresh.currentPath);
 
-      const withFields = await stampFieldValues(base, fieldsToStamp);
+      const activeFieldsToStamp =
+        fresh.currentPath === fresh.originalPath
+          ? [...presetFieldsToStamp, ...fieldsToStamp]
+          : fieldsToStamp;
+      const withFields = await stampFieldValues(base, activeFieldsToStamp);
       const stamped = await stampSignature(
         withFields,
         zone,

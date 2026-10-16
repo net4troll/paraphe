@@ -23,7 +23,7 @@ export type FieldType = "text" | "textarea" | "date" | "number" | "checkbox" | "
 
 export type FieldView = {
   id: string;
-  signerId: string;
+  signerId: string | null;
   label: string;
   type: FieldType;
   options: string[];
@@ -36,6 +36,12 @@ export type FieldView = {
 
 type Tool = "signature" | FieldType;
 type Selection = { kind: "zone" | "field"; id: string } | null;
+
+const COMMON_COLOR = {
+  border: "border-indigo-600",
+  bg: "bg-indigo-600/10",
+  text: "text-indigo-700",
+};
 
 const ZONE_COLORS = [
   { border: "border-teal-600", bg: "bg-teal-600/10", text: "text-teal-700" },
@@ -125,7 +131,7 @@ export default function ZoneEditor({
   fields: FieldView[];
   onPlace: (signerId: string, page: number, xPct: number, yPct: number) => void;
   onAddField: (
-    signerId: string,
+    signerId: string | null,
     type: FieldType,
     label: string,
     options: string[],
@@ -135,7 +141,7 @@ export default function ZoneEditor({
     yPct: number
   ) => void;
   onDeleteField: (fieldId: string) => void;
-  onReassignField: (fieldId: string, signerId: string) => void;
+  onReassignField: (fieldId: string, signerId: string | null) => void;
   onPresetField: (fieldId: string, presetValue: string) => void;
   onUpdateField: (
     fieldId: string,
@@ -367,7 +373,7 @@ export default function ZoneEditor({
   }, []);
 
   function handlePageClick(event: React.MouseEvent<HTMLDivElement>, pageIndex: number) {
-    if (!tool || !selectedSigner) {
+    if (!tool) {
       setSelected(null);
       return;
     }
@@ -376,9 +382,14 @@ export default function ZoneEditor({
     const yPct = clampY((event.clientY - rect.top) / rect.height);
 
     if (tool === "signature") {
+      if (!selectedSigner) {
+        alert("Sélectionnez un signataire pour lui attribuer une zone de signature.");
+        return;
+      }
       onPlace(selectedSigner.id, pageIndex, xPct, yPct);
     } else {
-      const existing = localFields.filter((f) => f.signerId === selectedSigner.id).length;
+      const targetSignerId = selectedId === "common" ? null : (selectedSigner?.id ?? null);
+      const existing = localFields.filter((f) => f.signerId === targetSignerId).length;
       const label = fieldLabel.trim() || `${TYPE_LABEL[tool]} ${existing + 1}`;
       const options =
         tool === "select"
@@ -387,14 +398,16 @@ export default function ZoneEditor({
               .map((o) => o.trim())
               .filter(Boolean)
           : [];
-      onAddField(selectedSigner.id, tool, label, options, fieldPreset.trim(), pageIndex, xPct, yPct);
+      onAddField(targetSignerId, tool, label, options, fieldPreset.trim(), pageIndex, xPct, yPct);
     }
     setFieldLabel("");
     setFieldPreset("");
     setTool(null); // un ajout par sélection d'outil
   }
 
-  const selectedFields = localFields.filter((f) => f.signerId === selectedId);
+  const selectedFields = localFields.filter((f) =>
+    selectedId === "common" ? !f.signerId : f.signerId === selectedId
+  );
 
   function renderHandles(kind: "zone" | "field", id: string, geometry: Geometry) {
     if (!selected || selected.kind !== kind || selected.id !== id) return null;
@@ -409,8 +422,22 @@ export default function ZoneEditor({
 
   return (
     <div>
-      {/* Sélecteur de signataire */}
+      {/* Sélecteur de signataire / commun */}
       <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setSelectedId("common")}
+          className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+            selectedId === "common"
+              ? "border-indigo-600 bg-indigo-50 text-indigo-700 font-semibold shadow-xs"
+              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+          }`}
+        >
+          🌐 Commun / Visible par tous
+          <span className="ml-2 text-xs font-normal">
+            {localFields.filter((f) => !f.signerId).length} champ(s)
+          </span>
+        </button>
         {localSigners.map((signer, i) => {
           const color = ZONE_COLORS[i % ZONE_COLORS.length];
           const placed = signer.page !== null;
@@ -467,7 +494,10 @@ export default function ZoneEditor({
             value={fieldLabel}
             onChange={(e) => setFieldLabel(e.target.value)}
             placeholder={`Libellé (défaut : ${TYPE_LABEL[tool]} ${
-              localFields.filter((f) => f.signerId === selectedId).length + 1
+              (selectedId === "common"
+                ? localFields.filter((f) => !f.signerId)
+                : localFields.filter((f) => f.signerId === selectedId)
+              ).length + 1
             })`}
             className="w-52 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs outline-none focus:border-brand-600"
           />
@@ -476,8 +506,12 @@ export default function ZoneEditor({
           <input
             value={fieldPreset}
             onChange={(e) => setFieldPreset(e.target.value)}
-            placeholder="Valeur préremplie (optionnel)"
-            className="w-52 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs outline-none focus:border-brand-600"
+            placeholder={
+              selectedId === "common"
+                ? "Valeur préremplie (visible par tous)"
+                : "Valeur préremplie (optionnel)"
+            }
+            className="w-56 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs outline-none focus:border-brand-600"
           />
         )}
         {tool === "select" && (
@@ -583,10 +617,16 @@ export default function ZoneEditor({
                     );
                   })}
 
-                  {/* Champs (du signataire sélectionné) */}
+                  {/* Champs placés (tous signataires et communs) */}
                   {localFields
-                    .filter((f) => f.signerId === selectedId && f.page === pageIndex)
+                    .filter((f) => f.page === pageIndex)
                     .map((field) => {
+                      const isCommon = !field.signerId;
+                      const signerIndex = isCommon ? -1 : localSigners.findIndex((s) => s.id === field.signerId);
+                      const fieldColor = isCommon
+                        ? COMMON_COLOR
+                        : (signerIndex >= 0 ? ZONE_COLORS[signerIndex % ZONE_COLORS.length] : COMMON_COLOR);
+
                       const geometry: Geometry = {
                         page: pageIndex,
                         xPct: field.xPct,
@@ -595,6 +635,12 @@ export default function ZoneEditor({
                       };
                       const isSelected =
                         selected?.kind === "field" && selected.id === field.id;
+                      const isDimmed =
+                        selectedId !== "common" &&
+                        Boolean(selectedId) &&
+                        field.signerId !== selectedId &&
+                        !isCommon;
+
                       return (
                         <div
                           key={field.id}
@@ -615,7 +661,9 @@ export default function ZoneEditor({
                             const label = next.trim();
                             if (label && label !== field.label) onRenameField(field.id, label);
                           }}
-                          className={`absolute z-10 ${color.border} ${color.bg} cursor-move rounded border border-dashed`}
+                          className={`absolute z-10 ${fieldColor.border} ${fieldColor.bg} cursor-move rounded border border-dashed transition-opacity ${
+                            isDimmed ? "opacity-35 hover:opacity-100" : "opacity-100"
+                          } ${isSelected ? "!border-solid !border-slate-900 shadow-md ring-2 ring-slate-900/20" : ""}`}
                           style={{
                             left: `${field.xPct * 100}%`,
                             top: `${field.yPct * 100}%`,
@@ -626,9 +674,11 @@ export default function ZoneEditor({
                           }}
                         >
                           <span
-                            className={`absolute -top-4 left-0 whitespace-nowrap rounded px-1 py-0.5 text-[9px] font-semibold ${color.text}`}
+                            className={`absolute -top-4 left-0 whitespace-nowrap rounded px-1 py-0.5 text-[9px] font-semibold ${fieldColor.text} ${
+                              isCommon ? "bg-indigo-50 border border-indigo-200" : ""
+                            }`}
                           >
-                            {field.label}
+                            {isCommon ? "🌐 " : ""}{field.label}{field.presetValue ? ` = "${field.presetValue}"` : ""}
                           </span>
                           <button
                             type="button"
@@ -671,34 +721,37 @@ export default function ZoneEditor({
           </p>
           <ul className="mt-2 space-y-1.5">
             {localFields.map((field) => {
-              const signerIndex = localSigners.findIndex((s) => s.id === field.signerId);
-              const signer = localSigners[signerIndex];
+              const isCommon = !field.signerId;
+              const signerIndex = isCommon ? -1 : localSigners.findIndex((s) => s.id === field.signerId);
+              const signer = signerIndex >= 0 ? localSigners[signerIndex] : null;
+              const fieldColor = isCommon ? COMMON_COLOR : ZONE_COLORS[signerIndex % ZONE_COLORS.length];
               return (
                 <li key={field.id} className="text-[13px]">
                   <div className="flex items-center justify-between gap-2">
                     <span className="min-w-0 truncate text-slate-600">
                       <span
                         className={`font-semibold ${
-                          ZONE_COLORS[signerIndex % ZONE_COLORS.length].text
+                          isCommon ? "text-indigo-700" : (fieldColor?.text ?? "text-slate-700")
                         }`}
                       >
-                        {signer?.name ?? "?"}
+                        {isCommon ? "🌐 Commun (visible par tous)" : (signer?.name ?? "?")}
                       </span>{" "}
                       — {field.label}{" "}
                       <span className="text-slate-400">
                         ({TYPE_LABEL[field.type]}
                         {field.type === "select" ? ` : ${field.options.join(", ")}` : ""} · page{" "}
                         {field.page + 1}
-                        {field.presetValue ? ` · prérempli : ${field.presetValue}` : ""})
+                        {field.presetValue ? ` · prérempli : « ${field.presetValue} »` : ""})
                       </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1.5">
                       <select
-                        value={field.signerId}
-                        onChange={(e) => onReassignField(field.id, e.target.value)}
-                        title="Réassigner à un autre signataire"
+                        value={field.signerId ?? ""}
+                        onChange={(e) => onReassignField(field.id, e.target.value || null)}
+                        title="Attribuer à un signataire ou rendre commun"
                         className="rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs text-slate-600 outline-none focus:border-brand-600"
                       >
+                        <option value="">🌐 Commun (visible par tous)</option>
                         {localSigners.map((s, si) => (
                           <option key={s.id} value={s.id}>
                             {s.name || `Signataire ${si + 1}`}
@@ -847,6 +900,22 @@ export default function ZoneEditor({
                 <div className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
                   Attribuer à
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onReassignField(field.id, null);
+                    setMenu(null);
+                  }}
+                  className={`flex w-full items-center gap-2.5 px-3 py-2 text-sm transition hover:bg-slate-50 ${
+                    !field.signerId ? "bg-indigo-50/70 font-semibold text-indigo-900" : "text-slate-700"
+                  }`}
+                >
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-indigo-600" />
+                  <span className="truncate">🌐 Commun (visible par tous)</span>
+                  {!field.signerId && (
+                    <Check size={14} className="ml-auto shrink-0 text-indigo-700" weight="bold" />
+                  )}
+                </button>
                 {localSigners.map((signer, i) => {
                   const current = field.signerId === signer.id;
                   return (
@@ -858,7 +927,7 @@ export default function ZoneEditor({
                         setMenu(null);
                       }}
                       className={`flex w-full items-center gap-2.5 px-3 py-2 text-sm transition hover:bg-slate-50 ${
-                        current ? "bg-brand-50/60" : ""
+                        current ? "bg-brand-50/60 font-semibold text-brand-900" : "text-slate-700"
                       }`}
                     >
                       <span
@@ -866,7 +935,7 @@ export default function ZoneEditor({
                           ZONE_COLORS[i % ZONE_COLORS.length].border.replace("border-", "bg-")
                         }`}
                       />
-                      <span className="truncate font-medium text-slate-700">{signer.name}</span>
+                      <span className="truncate">{signer.name}</span>
                       {current && (
                         <Check size={14} className="ml-auto shrink-0 text-brand-700" weight="bold" />
                       )}

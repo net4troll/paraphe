@@ -166,7 +166,7 @@ export default function DocumentDetail({
   }
 
   async function addField(
-    signerId: string,
+    signerId: string | null,
     type: FieldType,
     label: string,
     options: string[],
@@ -182,7 +182,7 @@ export default function DocumentDetail({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          signerId,
+          signerId: signerId || null,
           type,
           label,
           ...(options.length ? { options } : {}),
@@ -215,13 +215,13 @@ export default function DocumentDetail({
     }
   }
 
-  async function reassignField(fieldId: string, signerId: string) {
+  async function reassignField(fieldId: string, signerId: string | null) {
     setBusy(`field-${fieldId}`);
     try {
       const res = await fetch(`/api/documents/${doc.id}/fields/${fieldId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signerId }),
+        body: JSON.stringify({ signerId: signerId || null }),
       });
       if (res.ok) router.refresh();
     } finally {

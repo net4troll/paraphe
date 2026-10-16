@@ -31,10 +31,6 @@ export async function POST(_request: Request, { params }: RouteContext) {
       { status: 409 }
     );
   }
-  if (document.signers.length === 0) {
-    return NextResponse.json({ error: "Aucun signataire" }, { status: 400 });
-  }
-
   const base = await readStoredFile(document.originalPath);
   const detected = await detectFields(base);
 
@@ -43,7 +39,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
     await db.field.deleteMany({ where: { documentId: id } });
   }
 
-  // Zones de signature : aux signataires sans zone, dans l'ordre de lecture
+  // Zones de signature : aux signataires sans zone, dans l'ordre de lecture (si signataires présents)
   const freeSigners = document.signers.filter((s) => s.page === null);
   let signatureZones = 0;
   for (const spot of detected.filter((d) => d.type === "signature")) {
@@ -56,14 +52,13 @@ export async function POST(_request: Request, { params }: RouteContext) {
     signatureZones += 1;
   }
 
-  // Champs : rattachés au premier signataire (réassignables via la liste)
-  const defaultSigner = document.signers[0];
+  // Champs : créés au niveau document (signerId: null) prêts à être préremplis ou assignés
   let created = 0;
   for (const field of detected.filter((d) => d.type !== "signature")) {
     await db.field.create({
       data: {
         documentId: id,
-        signerId: defaultSigner.id,
+        signerId: null,
         label: field.label,
         type: field.type as Exclude<DetectedType, "signature">,
         page: field.page,

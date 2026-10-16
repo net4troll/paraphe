@@ -9,7 +9,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 const FIELD_TYPES = ["text", "textarea", "date", "number", "checkbox", "select"] as const;
 
 const createSchema = z.object({
-  signerId: z.string().min(1),
+  signerId: z.string().trim().nullable().optional(),
   label: z.string().trim().min(1, "Libellé requis").max(80),
   type: z.enum(FIELD_TYPES),
   options: z.array(z.string().trim().min(1).max(60)).min(1).max(10).optional(),
@@ -47,8 +47,11 @@ export async function POST(request: Request, { params }: RouteContext) {
       { status: 409 }
     );
   }
-  const signer = document.signers.find((s) => s.id === parsed.data.signerId);
-  if (!signer) {
+  const rawSignerId = parsed.data.signerId?.trim();
+  const signer = rawSignerId && rawSignerId !== "common"
+    ? document.signers.find((s) => s.id === rawSignerId)
+    : null;
+  if (rawSignerId && rawSignerId !== "common" && !signer) {
     return NextResponse.json({ error: "Signataire introuvable" }, { status: 404 });
   }
   if (parsed.data.type === "select" && !(parsed.data.options?.length)) {
@@ -62,7 +65,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     data: {
       id: randomUUID(),
       documentId: id,
-      signerId: signer.id,
+      signerId: signer ? signer.id : null,
       label: parsed.data.label,
       type: parsed.data.type,
       options: parsed.data.options ? JSON.stringify(parsed.data.options) : null,
