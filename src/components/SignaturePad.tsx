@@ -304,8 +304,8 @@ export default function SignaturePad({
       data-signature-pad="root"
       className={
         expanded
-          ? "fixed flex flex-col bg-white select-none overscroll-none shadow-2xl z-[9999]"
-          : "overflow-hidden rounded-2xl border border-slate-200 bg-white select-none"
+          ? "fixed flex flex-col bg-white text-slate-900 select-none overscroll-none shadow-2xl z-[9999]"
+          : "overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 select-none"
       }
       style={
         expanded
@@ -318,6 +318,7 @@ export default function SignaturePad({
                 height: `${viewport.w}px`,
                 transform: "translate(-50%, -50%) rotate(90deg)",
                 zIndex: 9999,
+                backgroundColor: "#ffffff",
               }
             : {
                 position: "fixed",
@@ -325,26 +326,19 @@ export default function SignaturePad({
                 width: "100vw",
                 height: "100vh",
                 zIndex: 9999,
+                backgroundColor: "#ffffff",
               }
           : undefined
       }
       onContextMenu={(e) => e.preventDefault()}
       onDragStart={(e) => e.preventDefault()}
     >
-      {/* Backdrop sombre bloquant tout ce qui se trouve derrière */}
-      {expanded && (
-        <div
-          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm -z-10 pointer-events-auto"
-          aria-hidden="true"
-        />
-      )}
-
       {/* Header */}
       <div
         className={
           expanded
-            ? "mx-auto flex w-full max-w-6xl items-center justify-between border-b border-slate-100 px-4 py-3 shrink-0"
-            : "flex items-center justify-between border-b border-slate-100 px-3 py-2.5"
+            ? "mx-auto flex w-full max-w-5xl items-center justify-between border-b border-slate-200 bg-white px-5 py-3.5 shrink-0"
+            : "flex items-center justify-between border-b border-slate-100 bg-white px-3 py-2.5"
         }
       >
         <div className="flex items-center gap-2">
@@ -353,7 +347,7 @@ export default function SignaturePad({
               type="button"
               onClick={() => setMode("draw")}
               className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                mode === "draw" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                mode === "draw" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
               }`}
             >
               <Pen size={13} /> Dessiner
@@ -362,7 +356,7 @@ export default function SignaturePad({
               type="button"
               onClick={() => setMode("type")}
               className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                mode === "type" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                mode === "type" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
               }`}
             >
               <Keyboard size={13} /> Taper
@@ -370,7 +364,7 @@ export default function SignaturePad({
           </div>
 
           {expanded && (
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-brand-50 border border-brand-200/80 px-2 py-1 text-[11px] font-medium text-brand-700">
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-brand-50 border border-brand-200/80 px-2.5 py-1 text-[11px] font-medium text-brand-700">
               <DeviceMobile size={13} className="rotate-90" /> Mode paysage actif
             </span>
           )}
@@ -410,8 +404,8 @@ export default function SignaturePad({
       <div
         className={
           expanded
-            ? "mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center gap-3 p-4 min-h-0 overflow-y-auto"
-            : "p-4"
+            ? "mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center gap-4 p-5 min-h-0 overflow-y-auto bg-slate-50/70"
+            : "p-4 bg-white"
         }
       >
         {mode === "type" && (
@@ -419,17 +413,23 @@ export default function SignaturePad({
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             placeholder="Tapez votre nom…"
-            className={`w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand-600 ${
-              expanded ? "max-w-3xl" : ""
+            className={`w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-base outline-none transition focus:border-brand-600 focus:ring-1 focus:ring-brand-600/30 ${
+              expanded ? "max-w-2xl" : ""
             }`}
           />
         )}
 
-        <div className={`relative ${expanded ? "w-full max-w-6xl flex-1 max-h-[60vh] flex flex-col justify-center" : "w-full"}`}>
+        <div
+          className={
+            expanded
+              ? "relative w-full max-w-3xl flex-1 max-h-[58vh] flex flex-col justify-center rounded-2xl border-2 border-slate-200 bg-white p-3 shadow-xs"
+              : "relative w-full rounded-xl border border-slate-200 bg-white"
+          }
+        >
           {/* Ligne de base + repère sous le canvas */}
-          <div className="pointer-events-none absolute inset-x-5 bottom-8 z-0 flex items-end gap-2">
-            <span className="select-none text-sm leading-none text-slate-300">✕</span>
-            <span className="mb-[3px] h-px flex-1 bg-slate-300" />
+          <div className="pointer-events-none absolute inset-x-8 bottom-8 z-0 flex items-end gap-2">
+            <span className="select-none text-base font-semibold leading-none text-slate-300">✕</span>
+            <span className="mb-[3px] h-0.5 flex-1 bg-slate-200" />
           </div>
           <canvas
             ref={canvasRef}
@@ -439,14 +439,18 @@ export default function SignaturePad({
             onPointerMove={moveDraw}
             onPointerUp={endDraw}
             onPointerLeave={endDraw}
-            className="relative z-10 w-full touch-none select-none bg-slate-50/50 rounded-xl border border-slate-200"
-            style={{ aspectRatio: "3 / 1", cursor: mode === "draw" ? "crosshair" : "default" }}
+            className="relative z-10 w-full touch-none select-none bg-white rounded-lg"
+            style={{
+              aspectRatio: "3 / 1",
+              backgroundColor: "#ffffff",
+              cursor: mode === "draw" ? "crosshair" : "default",
+            }}
           />
         </div>
 
         <p
           className={`text-[11px] leading-snug text-slate-400 select-none ${
-            expanded ? "max-w-3xl text-center" : ""
+            expanded ? "max-w-2xl text-center" : ""
           }`}
         >
           En signant, je confirme que cette signature électronique est la représentation légale de
@@ -456,13 +460,13 @@ export default function SignaturePad({
 
       {/* Barre d'action inférieure en plein écran */}
       {expanded && (
-        <div className="mx-auto mt-auto flex w-full max-w-6xl flex-col items-center gap-2.5 border-t border-slate-100 p-4 shrink-0 bg-white">
-          <label className="flex items-start gap-2.5 text-xs leading-snug text-slate-600 select-none">
+        <div className="mx-auto mt-auto flex w-full max-w-5xl flex-col items-center gap-3 border-t border-slate-200 px-6 py-4 shrink-0 bg-white">
+          <label className="flex items-start gap-2.5 text-xs leading-snug text-slate-700 select-none">
             <input
               type="checkbox"
               checked={consent}
               onChange={(e) => onConsentChange?.(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-brand-700"
+              className="mt-0.5 h-4 w-4 shrink-0 accent-slate-900"
             />
             <span>
               Je certifie mon identité et j&apos;accepte que cette signature électronique
@@ -473,7 +477,7 @@ export default function SignaturePad({
             type="button"
             onClick={submit}
             disabled={submitDisabled}
-            className="w-full max-w-3xl rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="w-full max-w-2xl rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {loading ? "Signature en cours…" : "Signer le document"}
           </button>
@@ -501,7 +505,17 @@ export default function SignaturePad({
     );
   }
   if (expanded) {
-    return createPortal(surface, document.body);
+    return createPortal(
+      <>
+        {/* Backdrop sombre séparé couvrant 100% de l'écran physique */}
+        <div
+          className="fixed inset-0 bg-slate-950/70 z-[9998] pointer-events-auto"
+          aria-hidden="true"
+        />
+        {surface}
+      </>,
+      document.body
+    );
   }
   return surface;
 }
