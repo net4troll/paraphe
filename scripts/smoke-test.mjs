@@ -206,7 +206,7 @@ async function main() {
     const vals = valuesBySigner.get(field.signerId);
     if (field.type === "checkbox") vals[field.id] = true;
     else if (field.type === "number") vals[field.id] = "12500,50";
-    else vals[field.id] = "Alger";
+    else vals[field.id] = "Paris";
   }
   const payloads = signers.map((s, i) => ({
     token: s.token,

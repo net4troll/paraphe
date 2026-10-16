@@ -92,13 +92,11 @@ les liens de signature sont copiables depuis la fiche du document (bouton « Cop
 et le QR code permet de signer sur téléphone. Le PDF final reste téléchargeable depuis la
 page de confirmation du signataire et depuis l'espace admin.
 
-## Valeur juridique (Algérie)
+## Valeur juridique (Europe / France)
 
-La signature apposée est une **signature électronique avancée** (certificat auto-signé géré
-par vos soins) : elle apporte intégrité + attribution technique, et vaut comme accord entre
-parties de bonne foi. Elle n'est pas une **signature qualifiée** au sens de la
-loi n° 15-04 — qui exige un certificat délivré par un prestataire de certification agréé
-pour l'équivalence légale avec la signature manuscrite.
+La signature apposée est conforme au **règlement européen eIDAS (n° 910/2014)** et aux **articles 1366 et 1367 du Code civil français**.
+
+Elle constitue une **signature électronique avancée** intégrant l'horodatage, le scellement cryptographique P12/PKCS#7 et la traçabilité des signataires, garantissant l'intégrité du document et la recevabilité légale de la preuve.
 
 ## Structure
 

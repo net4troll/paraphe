@@ -23,18 +23,18 @@ Le présent contrat a pour objet de définir les conditions de collaboration ent
 
 Article 2 - Engagements et Rémunération
 Le Prestataire s'engage à livrer les prestations convenues selon le calendrier prévisionnel validé par les deux parties.
-Le montant des prestations s'élève à 250 000 DZD payable sous trente jours.
+Le montant des prestations s'élève à 15 000 EUR payable sous trente jours.
 
 Article 3 - Confidentialité
 Chacune des parties s'engage à respecter la plus stricte confidentialité concernant les informations échangées.`,
     companyName: "SignFlow Technologies",
-    city: "Alger",
+    city: "Paris",
     signers: [
       { name: "Directeur Général", role: "Direction" },
       { name: "Partenaire B2B", role: "Client" },
     ],
     fields: [
-      { label: "Montant", value: "250 000 DZD" },
+      { label: "Montant", value: "15 000 EUR" },
       { label: "Durée", value: "12 mois" },
     ],
   });
@@ -69,7 +69,7 @@ Chacune des parties s'engage à respecter la plus stricte confidentialité conce
     });
     console.log(`   ✓ Document créé en base : ID = ${created.id}`);
 
-    await agentFillFields(created.id, { "Montant": "50 000 DZD" });
+    await agentFillFields(created.id, { "Montant": "5 000 EUR" });
     console.log("   ✓ Champs remplis par l'agent");
 
     const sent = await agentSendDocument(created.id);

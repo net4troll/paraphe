@@ -188,7 +188,7 @@ export async function createPdfDocument(params: CreatePdfParams): Promise<Buffer
   }
 
   // Mention de lieu et date
-  const city = params.city || "Alger";
+  const city = params.city || "Paris";
   currentPage.drawText(`Fait à ${city}, le ${todayStr}`, {
     x: marginX,
     y: cursorY,

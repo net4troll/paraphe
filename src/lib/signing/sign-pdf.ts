@@ -62,7 +62,7 @@ export async function signPdfWithCert(
     reason: `Signature du document « ${params.documentTitle} »`,
     contactInfo: process.env.SIGN_CERT_CONTACT?.trim() || params.signerEmail,
     name: params.signerName,
-    location: process.env.COMPANY_NAME?.trim() || "Algérie",
+    location: process.env.COMPANY_NAME?.trim() || "France",
     signingTime: params.signingTime,
     appName: APP_NAME,
     widgetRect: [offsetX, 36, offsetX + 170, 100],

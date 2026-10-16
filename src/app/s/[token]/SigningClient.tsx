@@ -520,8 +520,7 @@ export default function SigningClient(props: Props) {
               )}
 
               <p className="text-[11px] leading-relaxed text-slate-400">
-                Conformément à la loi algérienne n° 15-04, cette signature électronique avancée
-                garantit l&apos;intégrité du document et l&apos;identification du signataire.
+                Conformément au règlement européen eIDAS (n° 910/2014) et aux articles 1366 et 1367 du Code civil, cette signature électronique garantit l&apos;intégrité du document et l&apos;identification du signataire.
               </p>
             </section>
           </aside>

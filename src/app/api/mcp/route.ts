@@ -21,7 +21,7 @@ const MCP_TOOLS = [
         title: { type: "string", description: "Titre du document" },
         content: { type: "string", description: "Contenu textuel, articles ou clauses" },
         companyName: { type: "string", description: "Nom de l'entreprise émettrice" },
-        city: { type: "string", description: "Ville (ex: Paris, Alger)" },
+        city: { type: "string", description: "Ville (ex: Paris, Lyon)" },
         signers: {
           type: "array",
           items: {

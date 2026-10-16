@@ -59,7 +59,7 @@ server.tool(
     title: z.string().describe("Titre du document (ex: 'Contrat de Prestation de Service', 'Accord NDA')"),
     content: z.string().describe("Contenu textuel, articles ou clauses du document"),
     companyName: z.string().optional().describe("Nom de l'entreprise émettrice"),
-    city: z.string().optional().describe("Ville (ex: 'Paris', 'Alger')"),
+    city: z.string().optional().describe("Ville (ex: 'Paris', 'Lyon')"),
     signers: z
       .array(
         z.object({
