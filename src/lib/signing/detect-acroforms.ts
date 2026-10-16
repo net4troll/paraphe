@@ -70,6 +70,7 @@ export async function detectAcroFormsFromPdf(
       const xPct = clamp((minX + width / 2) / viewport.width, 0.02, 0.98);
       const yPct = clamp((viewport.height - maxY) / viewport.height, 0.02, 0.98);
       const widthPct = clamp(width / viewport.width, 0.03, 0.9);
+      const heightPct = clamp(height / viewport.height, 0.01, 0.5);
 
       const rawName = a.fieldName || a.alternativeText || "Champ";
       const nameLower = rawName.toLowerCase();
@@ -106,6 +107,7 @@ export async function detectAcroFormsFromPdf(
         xPct,
         yPct,
         widthPct: type === "checkbox" ? Math.max(widthPct, 0.03) : widthPct,
+        heightPct,
         signerHint,
         source: "acroform",
       });

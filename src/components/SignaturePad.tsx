@@ -66,6 +66,54 @@ export default function SignaturePad({
     }
   }, [name, typedName]);
 
+function trimSignatureCanvas(canvas: HTMLCanvasElement): string {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas.toDataURL("image/png");
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const imgData = ctx.getImageData(0, 0, width, height);
+  const data = imgData.data;
+
+  let minX = width;
+  let maxX = 0;
+  let minY = height;
+  let maxY = 0;
+  let hasInk = false;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const alpha = data[(y * width + x) * 4 + 3];
+      if (alpha > 15) {
+        hasInk = true;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (!hasInk || maxX <= minX || maxY <= minY) {
+    return canvas.toDataURL("image/png");
+  }
+
+  const pad = 16;
+  const cropX = Math.max(0, minX - pad);
+  const cropY = Math.max(0, minY - pad);
+  const cropW = Math.min(width - cropX, maxX - minX + 1 + pad * 2);
+  const cropH = Math.min(height - cropY, maxY - minY + 1 + pad * 2);
+
+  const cropped = document.createElement("canvas");
+  cropped.width = cropW;
+  cropped.height = cropH;
+  const croppedCtx = cropped.getContext("2d");
+  if (!croppedCtx) return canvas.toDataURL("image/png");
+
+  croppedCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+  return cropped.toDataURL("image/png");
+}
+
   // Génération PNG pour le mode "Taper"
   const renderTypedToDataUrl = useCallback(
     (text: string, styleId: string, color: string): string => {
@@ -89,7 +137,7 @@ export default function SignaturePad({
       ctx.fillText(text.trim(), canvas.width / 2, canvas.height / 2);
       ctx.restore();
 
-      return canvas.toDataURL("image/png");
+      return trimSignatureCanvas(canvas);
     },
     []
   );
@@ -189,7 +237,7 @@ export default function SignaturePad({
     let finalUrl = "";
     if (mode === "draw") {
       if (!padRef.current || padRef.current.isEmpty()) return;
-      finalUrl = padRef.current.toDataURL("image/png");
+      finalUrl = canvasRef.current ? trimSignatureCanvas(canvasRef.current) : padRef.current.toDataURL("image/png");
       savedStrokesRef.current = padRef.current.toData();
     } else {
       if (!typedName.trim()) return;

@@ -133,8 +133,8 @@ export async function detectHeuristicsFromPdf(
           label: cleanLabel(text) || "Signature",
           page: p - 1,
           xPct: clamp(startPct + width / 2, 0.05, 0.95),
-          // Positionné SOUS l'intitulé de signature
-          yPct: clamp(topPct + 0.035, 0.05, 0.92),
+          // Positionné directement sous l'intitulé de signature
+          yPct: clamp(topPct + 0.015, 0.05, 0.92),
           widthPct: width,
           source: "heuristic",
         });

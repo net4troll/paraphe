@@ -16,6 +16,7 @@ export type DetectedField = {
   xPct: number; // centre horizontal (0..1)
   yPct: number; // bord supérieur vertical (0..1, mesuré depuis le haut)
   widthPct: number; // fraction largeur (0..1)
+  heightPct?: number; // fraction hauteur (0..1)
   signerHint?: string; // ex: "client", "fournisseur", "1", "2"
   source?: DetectedSource;
 };
