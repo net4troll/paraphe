@@ -490,7 +490,7 @@ export default function SignaturePad({
   // Mode carte : rendu sur place, dans le rail. Plein écran : portal sur body
   // (échappe aux contextes d'empilement des parents sticky). Les traits sont
   // rejoués à chaque bascule, l'encre est donc conservée.
-  if (!mounted) {
+  if (!mounted || typeof document === "undefined") {
     return (
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-3 py-2.5 text-xs text-slate-400">

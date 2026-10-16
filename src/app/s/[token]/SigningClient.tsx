@@ -15,10 +15,19 @@ import {
   ShieldCheck,
   X,
 } from "@phosphor-icons/react/ssr";
+import dynamic from "next/dynamic";
 import QrCode from "react-qr-code";
 import { LogoMark } from "@/components/Logo";
-import PdfFillableViewer from "@/components/PdfFillableViewer";
 import SignaturePad from "@/components/SignaturePad";
+
+const PdfFillableViewer = dynamic(() => import("@/components/PdfFillableViewer"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-96 items-center justify-center bg-slate-100/70 p-4 text-sm text-slate-400">
+      Chargement du document…
+    </div>
+  ),
+});
 
 type FieldProp = {
   id: string;
