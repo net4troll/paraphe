@@ -60,6 +60,11 @@ export async function readStoredFile(absolutePath: string): Promise<Buffer> {
   return fs.readFile(resolved);
 }
 
+export async function cleanDocumentVersions(docId: string): Promise<void> {
+  const safeId = assertSafeId(docId);
+  await fs.rm(documentDir(safeId), { recursive: true, force: true });
+}
+
 export async function removeDocumentFiles(docId: string): Promise<void> {
   const safeId = assertSafeId(docId);
   await fs.rm(documentDir(safeId), { recursive: true, force: true });
