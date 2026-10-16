@@ -31,7 +31,7 @@ async function main() {
   const pdfBytes = await fs.readFile(pdfPath);
   const fileBase64 = pdfBytes.toString("base64");
 
-  const title = "Contrat de Sponsoring et d'Exposition ICCHM - Ali Rezouali & Christian Boyer";
+  const title = "Contrat de Sponsoring et d'Exposition ICCHM - Amin Gasmi & Ali Rezouali";
 
   console.log("Envoi du document à l'API de production...");
   const uploadResult = await callProd("upload_pdf", {
@@ -39,14 +39,14 @@ async function main() {
     fileBase64,
     signers: [
       {
-        name: "Ali Rezouali",
+        name: "Amin Gasmi",
         role: "Partenaire",
-        email: "alirezouali@gmail.com",
+        email: "gasmi.aminn@gmail.com",
       },
       {
-        name: "Christian Boyer",
+        name: "Ali Rezouali",
         role: "Organisateur",
-        email: "",
+        email: "alirezouali@gmail.com",
       },
     ],
     autoDetect: true,
@@ -63,7 +63,7 @@ async function main() {
     adresse: "20 Avenue des Champs-Élysées, 75008 Paris",
     siret: "832 941 123 00045",
     tva: "FR83832941123",
-    representant: "Ali Rezouali",
+    representant: "Amin Gasmi",
     formule: "Formule GOLD",
     formule_ht: "14 500 €",
     formule_ttc: "17 400 €",
@@ -73,9 +73,9 @@ async function main() {
     total_ttc: "17 400 €",
     ville: "Paris",
     date: "16/10/2026",
-    nom_sponsor: "Ali Rezouali",
+    nom_sponsor: "Amin Gasmi",
     fonction_sponsor: "Directeur Général",
-    nom_organisateur: "Christian Boyer",
+    nom_organisateur: "Ali Rezouali",
     fonction_organisateur: "Directeur Associé D-Code Lab",
   };
 
