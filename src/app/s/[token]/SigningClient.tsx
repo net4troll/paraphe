@@ -23,8 +23,11 @@ import SignaturePad from "@/components/SignaturePad";
 const PdfFillableViewer = dynamic(() => import("@/components/PdfFillableViewer"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-96 items-center justify-center bg-slate-100/70 p-4 text-sm text-slate-400">
-      Chargement du document…
+    <div className="flex h-[68vh] min-h-[480px] flex-col items-center justify-center bg-slate-100/70 p-6 text-slate-400">
+      <div className="flex flex-col items-center gap-3">
+        <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-300 border-t-slate-800" />
+        <p className="text-xs font-medium text-slate-500">Chargement sécurisé du document…</p>
+      </div>
     </div>
   ),
 });

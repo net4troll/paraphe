@@ -60,19 +60,48 @@ export default function PdfFillableViewer({
   focusRequest,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(0);
+  const [containerWidth, setContainerWidth] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const w = window.innerWidth;
+      const est = w >= 1024 ? Math.min(w - 440, 860) : Math.min(w - 32, 860);
+      return Math.max(est, 280);
+    }
+    return 0;
+  });
   const [numPages, setNumPages] = useState(0);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const measure = () => setContainerWidth(el.clientWidth);
-    measure();
+
+    // Mesure immédiate au montage
+    const measured = el.clientWidth;
+    if (measured > 0) {
+      setContainerWidth((prev) => (Math.abs(prev - measured) > 8 ? measured : prev));
+    }
+
+    let rafId: number;
     const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) setContainerWidth(entry.contentRect.width);
+      for (const entry of entries) {
+        const w = Math.round(entry.contentRect.width);
+        if (w > 0) {
+          cancelAnimationFrame(rafId);
+          rafId = requestAnimationFrame(() => {
+            setContainerWidth((prev) => {
+              // Ignore les micro-variations (<= 20px comme apparition de scrollbar)
+              // pour ne jamais détruire ni faire clignoter les canvas en cours
+              if (Math.abs(prev - w) <= 20) return prev;
+              return w;
+            });
+          });
+        }
+      }
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
   }, []);
 
   // Focus d'un champ demandé par le parent (clic dans le récapitulatif / CTA)
@@ -93,20 +122,31 @@ export default function PdfFillableViewer({
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) onRead?.();
   }, [onRead]);
 
-  const pageWidth = containerWidth > 0 ? Math.min(containerWidth - 32, 900) : undefined;
+  const pageWidth =
+    containerWidth > 0 ? Math.min(containerWidth - (containerWidth < 480 ? 16 : 32), 860) : 320;
+  const pageHeight = Math.round(pageWidth * 1.414);
 
   return (
     <div
       ref={containerRef}
-      className="max-h-[74vh] overflow-auto bg-slate-100/70 p-4"
+      className="h-[68vh] min-h-[480px] overflow-y-auto bg-slate-100/80 p-3 sm:p-4"
       onScroll={onScrollNearBottom}
     >
       {containerWidth > 0 && (
         <Document
           file={url}
           onLoadSuccess={({ numPages: n }) => setNumPages(n)}
-          loading={<div className="py-20 text-sm text-slate-400">Chargement du PDF…</div>}
-          error={<div className="py-20 text-sm text-red-500">PDF illisible.</div>}
+          loading={
+            <div className="flex h-full min-h-[400px] flex-col items-center justify-center gap-3 py-16 text-slate-400">
+              <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-300 border-t-slate-800" />
+              <p className="text-xs font-medium text-slate-500">Chargement du document PDF…</p>
+            </div>
+          }
+          error={
+            <div className="flex h-full min-h-[400px] items-center justify-center py-16 text-xs text-red-500">
+              PDF indisponible ou illisible.
+            </div>
+          }
         >
           {Array.from({ length: numPages }, (_, pageIndex) => {
             const pageFields = fields.filter((f) => f.page === pageIndex);
@@ -114,13 +154,26 @@ export default function PdfFillableViewer({
               <div
                 key={pageIndex}
                 data-page={pageIndex}
-                className="relative mb-4 overflow-hidden rounded-sm border border-slate-200 last:mb-0"
+                className="relative mb-4 overflow-hidden rounded-md border border-slate-200/90 bg-white shadow-2xs last:mb-0 transition-shadow"
+                style={{
+                  width: pageWidth,
+                  minHeight: pageHeight,
+                }}
               >
                 <Page
                   pageNumber={pageIndex + 1}
                   width={pageWidth}
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
+                  loading={
+                    <div
+                      style={{ width: pageWidth, height: pageHeight }}
+                      className="flex flex-col items-center justify-center gap-2.5 bg-white text-slate-400"
+                    >
+                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-slate-700" />
+                      <span className="text-[11px] font-medium text-slate-400">Page {pageIndex + 1}</span>
+                    </div>
+                  }
                 />
                 {pageFields
                   .filter((f) => !f.presetValue)

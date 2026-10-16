@@ -16,27 +16,51 @@ export default function PdfViewer({
   className?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(0);
+  const [containerWidth, setContainerWidth] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      return Math.min(window.innerWidth - 32, 900);
+    }
+    return 0;
+  });
   const [numPages, setNumPages] = useState(0);
   const [error, setError] = useState(false);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const measure = () => setContainerWidth(el.clientWidth);
-    measure();
+    const measured = el.clientWidth;
+    if (measured > 0) {
+      setContainerWidth((prev) => (Math.abs(prev - measured) > 8 ? measured : prev));
+    }
+
+    let rafId: number;
     const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) setContainerWidth(entry.contentRect.width);
+      for (const entry of entries) {
+        const w = Math.round(entry.contentRect.width);
+        if (w > 0) {
+          cancelAnimationFrame(rafId);
+          rafId = requestAnimationFrame(() => {
+            setContainerWidth((prev) => {
+              if (Math.abs(prev - w) <= 20) return prev;
+              return w;
+            });
+          });
+        }
+      }
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
   }, []);
 
   const onLoadSuccess = useCallback(({ numPages: n }: { numPages: number }) => {
     setNumPages(n);
   }, []);
 
-  const pageWidth = containerWidth > 0 ? Math.min(containerWidth - 32, 900) : undefined;
+  const pageWidth = containerWidth > 0 ? Math.min(containerWidth - 32, 900) : 320;
+  const pageHeight = Math.round(pageWidth * 1.414);
 
   return (
     <div
@@ -51,23 +75,39 @@ export default function PdfViewer({
           onLoadSuccess={onLoadSuccess}
           onLoadError={() => setError(true)}
           loading={
-            <div className="py-20 text-sm text-slate-400">Chargement du PDF…</div>
+            <div className="flex h-64 flex-col items-center justify-center gap-3 py-16 text-slate-400">
+              <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-300 border-t-slate-800" />
+              <p className="text-xs font-medium text-slate-500">Chargement du document PDF…</p>
+            </div>
           }
           error={
-            <div className="py-20 text-sm text-red-500">
+            <div className="flex h-64 items-center justify-center py-16 text-xs text-red-500">
               {error ? "Impossible d'afficher le PDF." : "PDF indisponible."}
             </div>
           }
         >
           {Array.from({ length: numPages }, (_, i) => (
-            <Page
+            <div
               key={i}
-              pageNumber={i + 1}
-              width={pageWidth}
-              renderTextLayer={false}
-              renderAnnotationLayer={false}
-              className="mb-4 overflow-hidden rounded-sm border border-slate-200 last:mb-0"
-            />
+              className="relative mb-4 overflow-hidden rounded-md border border-slate-200 bg-white shadow-2xs last:mb-0"
+              style={{ width: pageWidth, minHeight: pageHeight }}
+            >
+              <Page
+                pageNumber={i + 1}
+                width={pageWidth}
+                renderTextLayer={false}
+                renderAnnotationLayer={false}
+                loading={
+                  <div
+                    style={{ width: pageWidth, height: pageHeight }}
+                    className="flex flex-col items-center justify-center gap-2 bg-white text-slate-400"
+                  >
+                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-slate-700" />
+                    <span className="text-[11px] font-medium text-slate-400">Page {i + 1}</span>
+                  </div>
+                }
+              />
+            </div>
           ))}
         </Document>
       )}
