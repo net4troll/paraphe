@@ -47,24 +47,14 @@ export async function POST(request: Request, { params }: RouteContext) {
       );
     }
 
-    // Vérification des champs non assignés : ils doivent impérativement être préremplis
-    const unassignedEmpty = await db.field.findMany({
+    // Nettoyage des éventuels textes non renseignés
+    await db.field.deleteMany({
       where: {
         documentId: id,
         signerId: null,
         OR: [{ presetValue: null }, { presetValue: "" }],
       },
     });
-    if (unassignedEmpty.length > 0) {
-      return NextResponse.json(
-        {
-          error: `Certains champs ne sont ni assignés ni préremplis : ${unassignedEmpty
-            .map((f) => f.label)
-            .join(", ")}. Attribuez-les à un signataire ou préremplissez-les.`,
-        },
-        { status: 400 }
-      );
-    }
 
     // Tamponnage préalable de tous les champs préremplis par l'admin sur le PDF de base
     const presetFields = await db.field.findMany({

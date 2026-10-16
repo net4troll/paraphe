@@ -56,32 +56,19 @@ export async function stampFieldValues(
     const boxH = isCheckbox ? 13 : isArea ? 44 : 17;
     const rectY = topY - boxH;
 
-    // Libellé au-dessus du cadre
-    try {
-      page.drawText(fitText(field.label, font, boxW, 6), {
-        x: boxX,
-        y: topY + 3,
-        size: 6,
-        font,
-        color: LABEL,
-      });
-    } catch {
-      // caractères non encodables : libellé ignoré plutôt qu'un PDF cassé
-    }
-
     if (isCheckbox) {
       page.drawRectangle({
         x: boxX,
         y: rectY,
-        width: 13,
-        height: 13,
+        width: 12,
+        height: 12,
         borderColor: LINE,
         borderWidth: 1,
       });
       if (field.value === true) {
         page.drawText("X", {
-          x: boxX + 3.5,
-          y: rectY + 3,
+          x: boxX + 3,
+          y: rectY + 2.5,
           size: 8,
           font,
           color: INK,
@@ -90,58 +77,48 @@ export async function stampFieldValues(
       continue;
     }
 
-    // Cadre du champ
-    page.drawRectangle({
-      x: boxX,
-      y: rectY,
-      width: boxW,
-      height: boxH,
-      borderColor: LINE,
-      borderWidth: 0.8,
-    });
-
     const value = String(field.value ?? "").trim();
     if (!value) continue;
 
+    // Texte embriqué directement dans le PDF — aucun cadre ni libellé artificiel
     try {
       if (isArea) {
-        // Retour à la ligne grossier, 4 lignes maximum
-        const size = 7.5;
-        const lineHeight = 9.5;
+        const size = 9;
+        const lineHeight = 12;
         const words = value.split(/\s+/).filter(Boolean);
         const lines: string[] = [];
         let current = "";
         for (const word of words) {
           const candidate = current ? `${current} ${word}` : word;
-          if (font.widthOfTextAtSize(candidate, size) <= boxW - 8) {
+          if (font.widthOfTextAtSize(candidate, size) <= boxW) {
             current = candidate;
           } else {
             if (current) lines.push(current);
             current = word;
           }
-          if (lines.length >= 4) break;
+          if (lines.length >= 6) break;
         }
-        if (lines.length < 4 && current) lines.push(current);
+        if (lines.length < 6 && current) lines.push(current);
         lines.forEach((line, i) => {
-          page.drawText(fitText(line, font, boxW - 8, size), {
-            x: boxX + 4,
-            y: rectY + boxH - 9 - i * lineHeight,
+          page.drawText(fitText(line, font, boxW, size), {
+            x: boxX,
+            y: topY - 11 - i * lineHeight,
             size,
             font,
             color: INK,
           });
         });
       } else {
-        page.drawText(fitText(value, font, boxW - 8, 8.5), {
-          x: boxX + 4,
-          y: rectY + 5,
-          size: 8.5,
+        page.drawText(fitText(value, font, boxW, 9.5), {
+          x: boxX,
+          y: topY - 11,
+          size: 9.5,
           font,
           color: INK,
         });
       }
     } catch {
-      // valeur non encodable (ex. arabe) : cadre seul plutôt qu'un PDF cassé
+      // caractères non encodables
     }
   }
 

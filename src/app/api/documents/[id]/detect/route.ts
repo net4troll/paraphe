@@ -52,28 +52,9 @@ export async function POST(_request: Request, { params }: RouteContext) {
     signatureZones += 1;
   }
 
-  // Champs : créés au niveau document (signerId: null) prêts à être préremplis ou assignés
-  let created = 0;
-  for (const field of detected.filter((d) => d.type !== "signature")) {
-    await db.field.create({
-      data: {
-        documentId: id,
-        signerId: null,
-        label: field.label,
-        type: field.type as Exclude<DetectedType, "signature">,
-        page: field.page,
-        xPct: field.xPct,
-        yPct: field.yPct,
-        widthPct: field.widthPct,
-      },
-    });
-    created += 1;
-  }
-
   return NextResponse.json({
     ok: true,
     signatureZones,
-    created,
     detected: detected.length,
   });
 }

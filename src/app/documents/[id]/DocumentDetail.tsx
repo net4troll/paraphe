@@ -204,7 +204,7 @@ export default function DocumentDetail({
   }
 
   async function deleteSigner(signerId: string) {
-    if (!confirm("Supprimer ce signataire ? Ses champs deviendront communs et visibles par tous.")) {
+    if (!confirm("Supprimer ce signataire et ses champs associés ?")) {
       return;
     }
     setBusy(`signer-${signerId}`);

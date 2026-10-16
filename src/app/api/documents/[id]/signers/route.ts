@@ -160,10 +160,9 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     return NextResponse.json({ error: "Signataire introuvable" }, { status: 404 });
   }
 
-  // Préserver les champs déjà placés en les rendant communs (signerId: null)
-  await db.field.updateMany({
+  // Supprimer les champs associés à ce signataire
+  await db.field.deleteMany({
     where: { signerId: parsed.data.signerId },
-    data: { signerId: null },
   });
 
   await db.signer.delete({ where: { id: parsed.data.signerId } });
