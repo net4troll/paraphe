@@ -1,25 +1,28 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowsIn, ArrowsOut, DeviceMobile, Eraser, Keyboard, Pen, X } from "@phosphor-icons/react/ssr";
+import {
+  ArrowCounterClockwise,
+  ArrowsIn,
+  ArrowsOut,
+  Check,
+  DeviceMobile,
+  Eraser,
+  Keyboard,
+  Pen,
+  Sparkle,
+  X,
+} from "@phosphor-icons/react/ssr";
+import SignaturePadLib from "signature_pad";
+import { SIGNATURE_STYLES } from "@/lib/fonts";
 
-const CANVAS_W = 600;
-const CANVAS_H = 200;
-const INK_COLOR = "#1e3a5f";
+const INK_COLORS = [
+  { id: "navy", label: "Bleu nuit", hex: "#1e3a8a", bg: "bg-blue-900" },
+  { id: "black", label: "Noir profond", hex: "#0f172a", bg: "bg-slate-900" },
+  { id: "royal", label: "Bleu royal", hex: "#0284c7", bg: "bg-sky-600" },
+] as const;
 
-const TYPED_FONT = `italic 56px "Segoe Script", "Bradley Hand", "Brush Script MT", "Lucida Handwriting", cursive`;
-
-type Point = { x: number; y: number };
-
-/**
- * Pad de signature : onglets Dessiner / Taper, ligne de base, micro-copy légale.
- * En mode carte, il est rendu sur place (dans le rail). Le bouton plein écran
- * bascule via un portal sur document.body (grand format horizontal, échappe aux
- * contextes d'empilement) ; les traits sont mémorisés et redessinés, donc l'encre
- * survit aux changements de mode.
- * expose ref.submit() : valide la signature (utilisé par la barre d'action parente).
- */
 export default function SignaturePad({
   ref,
   name,
@@ -40,256 +43,225 @@ export default function SignaturePad({
   onSubmit: (dataUrl: string) => void;
 }) {
   const [mode, setMode] = useState<"draw" | "type">("draw");
-  const [typed, setTyped] = useState("");
+  const [typedName, setTypedName] = useState(name || "");
+  const [selectedStyleId, setSelectedStyleId] = useState<string>("caveat");
+  const [penColor, setPenColor] = useState<string>("#1e3a8a");
   const [hasInk, setHasInk] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [viewport, setViewport] = useState({ w: 0, h: 0 });
-  const [isPortrait, setIsPortrait] = useState(false);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const drawingRef = useRef(false);
-  const lastPointRef = useRef<Point | null>(null);
-  const strokesRef = useRef<Point[][]>([]);
-  const currentStrokeRef = useRef<Point[] | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const padInstanceRef = useRef<SignaturePadLib | null>(null);
+  const savedStrokesRef = useRef<ReturnType<SignaturePadLib["toData"]>>([]);
 
-  useEffect(() => setMounted(true), []);
-
-  // Détection continue de l'orientation et des dimensions du viewport
   useEffect(() => {
-    const updateSize = () => {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      setViewport({ w, h });
-      setIsPortrait(h > w);
-    };
-    updateSize();
-    window.addEventListener("resize", updateSize);
-    window.addEventListener("orientationchange", updateSize);
-    return () => {
-      window.removeEventListener("resize", updateSize);
-      window.removeEventListener("orientationchange", updateSize);
-    };
+    setMounted(true);
   }, []);
 
-  const isRotated = expanded && isPortrait;
+  // Synchronise typedName si le nom change depuis l'extérieur
+  useEffect(() => {
+    if (name && !typedName) setTypedName(name);
+  }, [name, typedName]);
 
-  // Activation plein écran et orientation paysage
-  async function enterFullscreen() {
+  // Initialisation et mise à l'échelle Retina du canvas
+  const setupCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+
+    // Sauvegarde des traits existants avant redimensionnement
+    let currentData = savedStrokesRef.current;
+    if (padInstanceRef.current && !padInstanceRef.current.isEmpty()) {
+      currentData = padInstanceRef.current.toData();
+      savedStrokesRef.current = currentData;
+    }
+
+    canvas.width = Math.round(rect.width * ratio);
+    canvas.height = Math.round(rect.height * ratio);
+    const ctx = canvas.getContext("2d");
+    if (ctx) ctx.scale(ratio, ratio);
+
+    if (!padInstanceRef.current) {
+      const pad = new SignaturePadLib(canvas, {
+        minWidth: 1.2,
+        maxWidth: 3.6,
+        throttle: 16,
+        velocityFilterWeight: 0.7,
+        penColor: penColor,
+        backgroundColor: "rgba(255, 255, 255, 0)", // Transparent pour signature propre
+      });
+
+      pad.addEventListener("endStroke", () => {
+        const empty = pad.isEmpty();
+        setHasInk(!empty);
+        onInkChange?.(!empty);
+        savedStrokesRef.current = pad.toData();
+      });
+
+      padInstanceRef.current = pad;
+    } else {
+      padInstanceRef.current.penColor = penColor;
+    }
+
+    if (mode === "draw") {
+      padInstanceRef.current.clear();
+      if (currentData && currentData.length > 0) {
+        padInstanceRef.current.fromData(currentData);
+        setHasInk(true);
+        onInkChange?.(true);
+      }
+    } else {
+      renderTypedToCanvas(typedName, selectedStyleId, penColor);
+    }
+  }, [mode, penColor, selectedStyleId, typedName, onInkChange]);
+
+  // Rendu de la signature tapée sur le canvas
+  const renderTypedToCanvas = useCallback(
+    (text: string, styleId: string, color: string) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const ratio = Math.max(window.devicePixelRatio || 1, 1);
+      const width = canvas.width / ratio;
+      const height = canvas.height / ratio;
+
+      ctx.clearRect(0, 0, width, height);
+      if (!text.trim()) {
+        setHasInk(false);
+        onInkChange?.(false);
+        return;
+      }
+
+      const styleObj = SIGNATURE_STYLES.find((s) => s.id === styleId) || SIGNATURE_STYLES[0];
+      const fontDeclaration = `italic ${Math.min(52, Math.max(26, width / (text.length * 0.5)))}px ${styleObj.cssFamily}`;
+
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = fontDeclaration;
+      ctx.fillText(text.trim(), width / 2, height / 2);
+      ctx.restore();
+
+      setHasInk(true);
+      onInkChange?.(true);
+    },
+    [onInkChange]
+  );
+
+  // Redimensionnement réactif (rotation d'écran, ouverture plein écran)
+  useEffect(() => {
+    const timer = setTimeout(() => setupCanvas(), 50);
+    const onResize = () => setupCanvas();
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, [setupCanvas, expanded, mode]);
+
+  // Mise à jour de la couleur d'encre
+  function changePenColor(hex: string) {
+    setPenColor(hex);
+    if (padInstanceRef.current) {
+      padInstanceRef.current.penColor = hex;
+    }
+    if (mode === "type") {
+      renderTypedToCanvas(typedName, selectedStyleId, hex);
+    }
+  }
+
+  // Annuler le dernier trait (Undo)
+  function handleUndo() {
+    if (mode !== "draw" || !padInstanceRef.current) return;
+    const data = padInstanceRef.current.toData();
+    if (data.length > 0) {
+      data.pop();
+      padInstanceRef.current.fromData(data);
+      savedStrokesRef.current = data;
+      const empty = padInstanceRef.current.isEmpty();
+      setHasInk(!empty);
+      onInkChange?.(!empty);
+    }
+  }
+
+  // Effacer tout
+  function handleClear() {
+    if (mode === "draw") {
+      padInstanceRef.current?.clear();
+      savedStrokesRef.current = [];
+    } else {
+      setTypedName("");
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext("2d");
+        const ratio = Math.max(window.devicePixelRatio || 1, 1);
+        ctx?.clearRect(0, 0, canvas.width / ratio, canvas.height / ratio);
+      }
+    }
+    setHasInk(false);
+    onInkChange?.(false);
+  }
+
+  // Sélection d'un style typographique
+  function selectStyle(styleId: string) {
+    setSelectedStyleId(styleId);
+    renderTypedToCanvas(typedName, styleId, penColor);
+  }
+
+  // Fermeture / Plein écran
+  function openModal() {
+    if (padInstanceRef.current && !padInstanceRef.current.isEmpty()) {
+      savedStrokesRef.current = padInstanceRef.current.toData();
+    }
     setExpanded(true);
-
-    // 1. Tente le plein écran natif de l'élément racine
-    try {
-      const docEl = document.documentElement as any;
-      if (docEl.requestFullscreen && !document.fullscreenElement) {
-        await docEl.requestFullscreen().catch(() => {});
-      } else if (docEl.webkitRequestFullscreen && !(document as any).webkitFullscreenElement) {
-        await docEl.webkitRequestFullscreen().catch(() => {});
-      }
-    } catch {}
-
-    // 2. Verrouille l'orientation en paysage (Screen Orientation API)
-    try {
-      const orientation =
-        (screen as any).orientation ||
-        (screen as any).mozOrientation ||
-        (screen as any).msOrientation;
-      if (orientation && typeof orientation.lock === "function") {
-        await orientation.lock("landscape").catch(() => {});
-      }
-    } catch {}
   }
 
-  // Sortie du plein écran et déverrouillage
-  async function exitFullscreen() {
+  function closeModal() {
+    if (padInstanceRef.current && !padInstanceRef.current.isEmpty()) {
+      savedStrokesRef.current = padInstanceRef.current.toData();
+    }
     setExpanded(false);
-
-    // 1. Déverrouille l'orientation
-    try {
-      const orientation =
-        (screen as any).orientation ||
-        (screen as any).mozOrientation ||
-        (screen as any).msOrientation;
-      if (orientation && typeof orientation.unlock === "function") {
-        orientation.unlock();
-      }
-    } catch {}
-
-    // 2. Quitte le plein écran natif si actif
-    try {
-      if (document.fullscreenElement && document.exitFullscreen) {
-        await document.exitFullscreen().catch(() => {});
-      } else if ((document as any).webkitFullscreenElement && (document as any).webkitExitFullscreen) {
-        await (document as any).webkitExitFullscreen().catch(() => {});
-      }
-    } catch {}
   }
 
-  // Échap quitte le plein écran
+  // Gestion touche Échap
   useEffect(() => {
     if (!expanded) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") exitFullscreen();
+      if (e.key === "Escape") closeModal();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [expanded]);
 
-  // Désactive ce qui est derrière (scroll, interactions, sélection)
+  // Empêche le défilement d'arrière-plan en mode modal
   useEffect(() => {
     if (!expanded) return;
-
-    const prevBodyOverflow = document.body.style.overflow;
-    const prevBodyTouchAction = document.body.style.touchAction;
-    const prevBodyUserSelect = document.body.style.userSelect;
-    const prevBodyWebkitUserSelect = (document.body.style as any).webkitUserSelect;
-    const prevHtmlOverflow = document.documentElement.style.overflow;
-
+    const prevOverflow = document.body.style.overflow;
+    const prevTouchAction = document.body.style.touchAction;
     document.body.style.overflow = "hidden";
     document.body.style.touchAction = "none";
-    document.body.style.userSelect = "none";
-    (document.body.style as any).webkitUserSelect = "none";
-    document.documentElement.style.overflow = "hidden";
-
-    const preventBgTouch = (e: TouchEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target?.closest?.("[data-signature-pad]")) {
-        e.preventDefault();
-      }
-    };
-    document.addEventListener("touchmove", preventBgTouch, { passive: false });
-
     return () => {
-      document.body.style.overflow = prevBodyOverflow;
-      document.body.style.touchAction = prevBodyTouchAction;
-      document.body.style.userSelect = prevBodyUserSelect;
-      (document.body.style as any).webkitUserSelect = prevBodyWebkitUserSelect;
-      document.documentElement.style.overflow = prevHtmlOverflow;
-      document.removeEventListener("touchmove", preventBgTouch);
+      document.body.style.overflow = prevOverflow;
+      document.body.style.touchAction = prevTouchAction;
     };
   }, [expanded]);
 
-  /** Redessine tout : traits mémorisés (mode dessiner) ou nom tapé (mode taper). */
-  function redraw() {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) return;
-    ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-    ctx.strokeStyle = INK_COLOR;
-    ctx.fillStyle = INK_COLOR;
-    ctx.lineWidth = 3;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
-    if (mode === "type") {
-      if (typed.trim()) {
-        ctx.font = TYPED_FONT;
-        ctx.textBaseline = "middle";
-        ctx.fillText(typed.trim(), 16, CANVAS_H / 2, CANVAS_W - 32);
-        setHasInk(true);
-        return;
-      }
-      setHasInk(false);
-      return;
-    }
-
-    for (const stroke of strokesRef.current) {
-      if (stroke.length === 1) {
-        ctx.beginPath();
-        ctx.arc(stroke[0].x, stroke[0].y, 1.8, 0, Math.PI * 2);
-        ctx.fill();
-        continue;
-      }
-      ctx.beginPath();
-      ctx.moveTo(stroke[0].x, stroke[0].y);
-      for (const point of stroke.slice(1)) ctx.lineTo(point.x, point.y);
-      ctx.stroke();
-    }
-    setHasInk(strokesRef.current.length > 0);
-  }
-
-  // Redessine au montage et à chaque bascule (onglet, plein écran) — l'encre suit.
-  useEffect(() => {
-    redraw();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, typed, expanded, mounted]);
-
-  useEffect(() => {
-    onInkChange?.(hasInk);
-  }, [hasInk, onInkChange]);
-
-  function canvasPoint(e: React.PointerEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current!;
-    const rect = canvas.getBoundingClientRect();
-
-    if (isRotated) {
-      // Rotation de 90° horaire en mode paysage automatique sur mobile portrait :
-      // L'axe X local correspond au déplacement de haut en bas sur l'écran physique (clientY)
-      // L'axe Y local correspond au déplacement de droite à gauche sur l'écran physique (clientX)
-      const localX = ((e.clientY - rect.top) / rect.height) * CANVAS_W;
-      const localY = ((rect.right - e.clientX) / rect.width) * CANVAS_H;
-      return {
-        x: Math.max(0, Math.min(CANVAS_W, localX)),
-        y: Math.max(0, Math.min(CANVAS_H, localY)),
-      };
-    }
-
-    return {
-      x: Math.max(0, Math.min(CANVAS_W, ((e.clientX - rect.left) / rect.width) * CANVAS_W)),
-      y: Math.max(0, Math.min(CANVAS_H, ((e.clientY - rect.top) / rect.height) * CANVAS_H)),
-    };
-  }
-
-  function startDraw(e: React.PointerEvent<HTMLCanvasElement>) {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    drawingRef.current = true;
-    const point = canvasPoint(e);
-    currentStrokeRef.current = [point];
-    strokesRef.current.push(currentStrokeRef.current);
-    lastPointRef.current = point;
-    setHasInk(true);
-  }
-
-  function moveDraw(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (!drawingRef.current || !currentStrokeRef.current) return;
-    const point = canvasPoint(e);
-    const stroke = currentStrokeRef.current;
-    const from = stroke[stroke.length - 1];
-    const ctx = canvasRef.current?.getContext("2d");
-    if (!ctx) return;
-    ctx.strokeStyle = INK_COLOR;
-    ctx.lineWidth = 3;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(point.x, point.y);
-    ctx.stroke();
-    stroke.push(point);
-    lastPointRef.current = point;
-  }
-
-  function endDraw() {
-    drawingRef.current = false;
-    currentStrokeRef.current = null;
-    lastPointRef.current = null;
-  }
-
-  function clear() {
-    setTyped("");
-    strokesRef.current = [];
-    currentStrokeRef.current = null;
-    redraw();
-  }
-
+  // Validation / export de la signature
   function submit() {
     const canvas = canvasRef.current;
     if (!canvas || !hasInk) return;
-    if (expanded) exitFullscreen();
+    if (expanded) closeModal();
     onSubmit(canvas.toDataURL("image/png"));
   }
 
-  // La barre d'action du parent déclenche submit() via la ref.
   useEffect(() => {
     if (ref && typeof ref === "object") {
       ref.current = { submit };
@@ -299,223 +271,287 @@ export default function SignaturePad({
   const submitDisabled =
     loading || !consent || !name.trim() || !hasInk || blockSubmit;
 
-  const surface = (
-    <div
-      data-signature-pad="root"
-      className={
-        expanded
-          ? "fixed flex flex-col bg-white text-slate-900 select-none overscroll-none shadow-2xl z-[9999]"
-          : "overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 select-none"
-      }
-      style={
-        expanded
-          ? isRotated && viewport.w > 0 && viewport.h > 0
-            ? {
-                position: "fixed",
-                top: "50%",
-                left: "50%",
-                width: `${viewport.h}px`,
-                height: `${viewport.w}px`,
-                transform: "translate(-50%, -50%) rotate(90deg)",
-                zIndex: 9999,
-                backgroundColor: "#ffffff",
-              }
-            : {
-                position: "fixed",
-                inset: 0,
-                width: "100vw",
-                height: "100vh",
-                zIndex: 9999,
-                backgroundColor: "#ffffff",
-              }
-          : undefined
-      }
-      onContextMenu={(e) => e.preventDefault()}
-      onDragStart={(e) => e.preventDefault()}
-    >
-      {/* Header */}
-      <div
-        className={
-          expanded
-            ? "mx-auto flex w-full max-w-5xl items-center justify-between border-b border-slate-200 bg-white px-5 py-3.5 shrink-0"
-            : "flex items-center justify-between border-b border-slate-100 bg-white px-3 py-2.5"
-        }
-      >
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-lg bg-slate-100 p-0.5">
-            <button
-              type="button"
-              onClick={() => setMode("draw")}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                mode === "draw" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
-              }`}
-            >
-              <Pen size={13} /> Dessiner
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("type")}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                mode === "type" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
-              }`}
-            >
-              <Keyboard size={13} /> Taper
-            </button>
+  // Rendu de l'onglet Dessiner vs Taper
+  const contentBody = (
+    <div className="flex flex-col gap-4">
+      {mode === "type" ? (
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-700">Votre nom ou prénom</label>
+            <input
+              type="text"
+              value={typedName}
+              onChange={(e) => {
+                setTypedName(e.target.value);
+                renderTypedToCanvas(e.target.value, selectedStyleId, penColor);
+              }}
+              placeholder="Tapez votre nom…"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-900 focus:ring-1 focus:ring-slate-900/20"
+            />
           </div>
 
-          {expanded && (
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-brand-50 border border-brand-200/80 px-2.5 py-1 text-[11px] font-medium text-brand-700">
-              <DeviceMobile size={13} className="rotate-90" /> Mode paysage actif
-            </span>
-          )}
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-slate-700">Choisissez votre style :</p>
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+              {SIGNATURE_STYLES.map((st) => {
+                const isSelected = selectedStyleId === st.id;
+                return (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => selectStyle(st.id)}
+                    className={`group relative flex flex-col items-center justify-center rounded-2xl border p-3 text-center transition ${
+                      isSelected
+                        ? "border-slate-900 bg-slate-900/5 shadow-xs ring-1 ring-slate-900"
+                        : "border-slate-200 bg-white hover:border-slate-400 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span
+                      className="truncate text-xl transition group-hover:scale-105"
+                      style={{ fontFamily: st.cssFamily, color: penColor }}
+                    >
+                      {typedName.trim() || "Signature"}
+                    </span>
+                    <span className="mt-1 text-[11px] font-medium text-slate-500">{st.label}</span>
+                    {isSelected && (
+                      <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-slate-900 text-white">
+                        <Check size={10} weight="bold" />
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
+      ) : null}
 
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={clear}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 transition hover:text-slate-800"
-          >
-            <Eraser size={13} /> Effacer
-          </button>
-          {expanded ? (
-            <button
-              type="button"
-              onClick={exitFullscreen}
-              title="Réduire (Échap)"
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
-            >
-              <ArrowsIn size={14} /> Réduire
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={enterFullscreen}
-              title="Signer en plein écran (paysage automatique)"
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-brand-700 hover:text-brand-800"
-            >
-              <ArrowsOut size={13} /> Plein écran
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Zone centrale du pad */}
-      <div
-        className={
-          expanded
-            ? "mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center gap-4 p-5 min-h-0 overflow-y-auto bg-slate-50/70"
-            : "p-4 bg-white"
-        }
-      >
-        {mode === "type" && (
-          <input
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            placeholder="Tapez votre nom…"
-            className={`w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-base outline-none transition focus:border-brand-600 focus:ring-1 focus:ring-brand-600/30 ${
-              expanded ? "max-w-2xl" : ""
-            }`}
-          />
-        )}
-
+      {/* Zone Canvas */}
+      <div className="relative">
         <div
-          className={
-            expanded
-              ? "relative w-full max-w-3xl flex-1 max-h-[58vh] flex flex-col justify-center rounded-2xl border-2 border-slate-200 bg-white p-3 shadow-xs"
-              : "relative w-full rounded-xl border border-slate-200 bg-white"
-          }
-        >
-          {/* Ligne de base + repère sous le canvas */}
-          <div className="pointer-events-none absolute inset-x-8 bottom-8 z-0 flex items-end gap-2">
-            <span className="select-none text-base font-semibold leading-none text-slate-300">✕</span>
-            <span className="mb-[3px] h-0.5 flex-1 bg-slate-200" />
-          </div>
-          <canvas
-            ref={canvasRef}
-            width={CANVAS_W}
-            height={CANVAS_H}
-            onPointerDown={startDraw}
-            onPointerMove={moveDraw}
-            onPointerUp={endDraw}
-            onPointerLeave={endDraw}
-            className="relative z-10 w-full touch-none select-none bg-white rounded-lg"
-            style={{
-              aspectRatio: "3 / 1",
-              backgroundColor: "#ffffff",
-              cursor: mode === "draw" ? "crosshair" : "default",
-            }}
-          />
-        </div>
-
-        <p
-          className={`text-[11px] leading-snug text-slate-400 select-none ${
-            expanded ? "max-w-2xl text-center" : ""
+          className={`relative w-full rounded-2xl border-2 border-slate-200 bg-white transition-shadow focus-within:border-slate-900 focus-within:shadow-md ${
+            expanded ? "h-64 sm:h-72" : "h-44 sm:h-48"
           }`}
         >
-          En signant, je confirme que cette signature électronique est la représentation légale de
-          ma signature manuscrite.
-        </p>
-      </div>
+          {/* Ligne repère sous le canvas */}
+          <div className="pointer-events-none absolute inset-x-6 bottom-7 z-0 flex items-end gap-2">
+            <span className="select-none text-base font-semibold leading-none text-slate-300">✕</span>
+            <span className="mb-[2px] h-[1.5px] flex-1 bg-slate-200" />
+          </div>
 
-      {/* Barre d'action inférieure en plein écran */}
-      {expanded && (
-        <div className="mx-auto mt-auto flex w-full max-w-5xl flex-col items-center gap-3 border-t border-slate-200 px-6 py-4 shrink-0 bg-white">
-          <label className="flex items-start gap-2.5 text-xs leading-snug text-slate-700 select-none">
-            <input
-              type="checkbox"
-              checked={consent}
-              onChange={(e) => onConsentChange?.(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-slate-900"
-            />
-            <span>
-              Je certifie mon identité et j&apos;accepte que cette signature électronique
-              m&apos;engage sur le présent document.
-            </span>
-          </label>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={submitDisabled}
-            className="w-full max-w-2xl rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {loading ? "Signature en cours…" : "Signer le document"}
-          </button>
-          {blockSubmit && (
-            <p className="text-center text-xs text-slate-400 select-none">
-              Complétez d&apos;abord tous les champs dans le panneau « Champs à compléter ».
-            </p>
+          {/* Indication visuelle si vide */}
+          {!hasInk && mode === "draw" && (
+            <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center text-xs font-medium text-slate-400 select-none">
+              Signez ici avec votre doigt, stylet ou souris
+            </div>
           )}
+
+          <canvas
+            ref={canvasRef}
+            className="relative z-10 h-full w-full touch-none select-none rounded-2xl cursor-crosshair"
+            style={{ backgroundColor: "#ffffff" }}
+          />
         </div>
-      )}
+
+        {/* Barre d'outils sous le canvas */}
+        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+          {/* Choix des encres */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-medium text-slate-400 mr-1">Encre :</span>
+            {INK_COLORS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => changePenColor(c.hex)}
+                title={c.label}
+                className={`flex h-6 w-6 items-center justify-center rounded-full transition ${c.bg} ${
+                  penColor === c.hex ? "ring-2 ring-offset-2 ring-slate-900 scale-110" : "opacity-80 hover:opacity-100"
+                }`}
+              >
+                {penColor === c.hex && <Check size={11} weight="bold" className="text-white" />}
+              </button>
+            ))}
+          </div>
+
+          {/* Actions d'effacement */}
+          <div className="flex items-center gap-1.5">
+            {mode === "draw" && (
+              <button
+                type="button"
+                onClick={handleUndo}
+                disabled={!hasInk}
+                title="Annuler le dernier trait"
+                className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+              >
+                <ArrowCounterClockwise size={13} />
+                <span>Annuler</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleClear}
+              disabled={!hasInk}
+              title="Effacer la signature"
+              className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+            >
+              <Eraser size={13} />
+              <span>Effacer</span>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 
-  // Mode carte : rendu sur place, dans le rail. Plein écran : portal sur body
-  // (échappe aux contextes d'empilement des parents sticky). Les traits sont
-  // rejoués à chaque bascule, l'encre est donc conservée.
-  if (!mounted || typeof document === "undefined") {
-    return (
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-3 py-2.5 text-xs text-slate-400">
-          Signature
-        </div>
-        <div className="p-4 text-sm text-slate-300" style={{ aspectRatio: "3 / 1" }} />
-      </div>
-    );
-  }
-  if (expanded) {
+  // Vue modale pleine écran (Dialog modal responsive centré)
+  if (expanded && mounted && typeof document !== "undefined") {
     return createPortal(
-      <>
-        {/* Backdrop sombre séparé couvrant 100% de l'écran physique */}
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+        {/* Backdrop sombre flouté */}
         <div
-          className="fixed inset-0 bg-slate-950/70 z-[9998] pointer-events-auto"
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
           aria-hidden="true"
+          onClick={closeModal}
         />
-        {surface}
-      </>,
+
+        {/* Boîte de dialogue Signature (Pure White Card) */}
+        <div
+          data-signature-pad="modal"
+          className="relative z-10 flex w-full max-w-2xl flex-col rounded-3xl border border-slate-200 bg-white shadow-2xl overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150"
+          style={{ backgroundColor: "#ffffff" }}
+        >
+          {/* Header de la modale */}
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 shrink-0 bg-white">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-900">
+                <Pen size={16} weight="bold" />
+              </span>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Créer votre signature</h3>
+                <p className="text-[11px] text-slate-400">Dessinez au doigt ou choisissez un style manuscrit</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Onglets Dessiner / Taper */}
+              <div className="flex rounded-xl bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setMode("draw")}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    mode === "draw" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  <Pen size={13} /> Dessiner
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("type")}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    mode === "type" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  <Keyboard size={13} /> Taper
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeModal}
+                title="Fermer (Échap)"
+                className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X size={16} weight="bold" />
+              </button>
+            </div>
+          </div>
+
+          {/* Corps de la modale */}
+          <div className="p-5 sm:p-6 bg-slate-50/50 overflow-y-auto">
+            {contentBody}
+
+            {/* Note mobile discrète */}
+            <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+              <DeviceMobile size={13} className="text-slate-400" />
+              <span>Sur smartphone, tournez votre appareil en paysage pour un espace de dessin élargi.</span>
+            </div>
+          </div>
+
+          {/* Footer d'action */}
+          <div className="flex flex-col gap-3 border-t border-slate-100 bg-white px-5 py-4 shrink-0 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex items-start gap-2 text-xs leading-snug text-slate-600 select-none">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(e) => onConsentChange?.(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-slate-900 rounded"
+              />
+              <span>
+                Je confirme que cette signature électronique m&apos;engage légalement sur ce document.
+              </span>
+            </label>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={submit}
+                disabled={submitDisabled}
+                className="rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {loading ? "Signature en cours…" : "Valider la signature"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>,
       document.body
     );
   }
-  return surface;
+
+  // Vue compacte (dans la barre latérale du document)
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 bg-white">
+        <div className="flex rounded-lg bg-slate-100 p-0.5">
+          <button
+            type="button"
+            onClick={() => setMode("draw")}
+            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+              mode === "draw" ? "bg-white text-slate-900 shadow-xs font-semibold" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <Pen size={12} /> Dessiner
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("type")}
+            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+              mode === "type" ? "bg-white text-slate-900 shadow-xs font-semibold" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <Keyboard size={12} /> Taper
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={openModal}
+          title="Signer en grand format"
+          className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-slate-900 shadow-2xs"
+        >
+          <ArrowsOut size={13} />
+          <span>Plein écran</span>
+        </button>
+      </div>
+
+      <div className="p-4 bg-white">{contentBody}</div>
+    </div>
+  );
 }
