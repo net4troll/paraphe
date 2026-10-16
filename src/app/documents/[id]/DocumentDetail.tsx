@@ -460,7 +460,19 @@ export default function DocumentDetail({
         setMessage({ kind: "error", text: body.error ?? "Détection impossible" });
         return;
       }
-      const { created = 0, signatureZones = 0 } = body;
+      const { created = 0, signatureZones = 0, source } = body as {
+        created?: number;
+        signatureZones?: number;
+        source?: string;
+      };
+      const engineInfo =
+        source === "groq-vision"
+          ? " (IA Groq Qwen Vision)"
+          : source === "acroform"
+          ? " (Formulaire PDF natif)"
+          : source === "anchor"
+          ? " (Balises d'ancrage)"
+          : "";
       if (created === 0 && signatureZones === 0) {
         setMessage({
           kind: "error",
@@ -469,7 +481,7 @@ export default function DocumentDetail({
       } else {
         setMessage({
           kind: "ok",
-          text: `${created} champ${created > 1 ? "s" : ""} et ${signatureZones} zone${signatureZones > 1 ? "s" : ""} de signature détectés — vérifiez, ajustez ou réassignez si besoin.`,
+          text: `${created} champ${created > 1 ? "s" : ""} et ${signatureZones} zone${signatureZones > 1 ? "s" : ""} de signature détectés${engineInfo} — vérifiez, ajustez ou réassignez si besoin.`,
         });
       }
       router.refresh();

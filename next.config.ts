@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@prisma/client", "@prisma/adapter-pg"],
+  serverExternalPackages: [
+    "@prisma/client",
+    "@prisma/adapter-pg",
+    "@napi-rs/canvas",
+  ],
   experimental: {
     serverActions: {
       bodySizeLimit: "15mb",

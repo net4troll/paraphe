@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash, timingSafeEqual } from "crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 
 const COOKIE_NAME = "signflow_session";
@@ -22,6 +22,15 @@ export function checkAdminPassword(input: string): boolean {
   const expected = process.env.ADMIN_PASSWORD?.trim();
   if (!expected || expected === "changez-moi") return false;
   return timingSafeEqual(sha256(input), sha256(expected));
+}
+
+export function verifyApiKey(key: string): boolean {
+  const trimmed = key.trim();
+  const expectedKey = process.env.SIGNFLOW_API_KEY?.trim();
+  if (expectedKey && trimmed === expectedKey) return true;
+  const adminPass = process.env.ADMIN_PASSWORD?.trim();
+  if (adminPass && adminPass !== "changez-moi" && trimmed === adminPass) return true;
+  return false;
 }
 
 export async function createSession(): Promise<void> {
@@ -47,9 +56,26 @@ export async function destroySession(): Promise<void> {
 }
 
 export async function isAdmin(): Promise<boolean> {
-  const token = (await cookies()).get(COOKIE_NAME)?.value;
-  if (!token) return false;
+  // 1. Authentification par clé API ou Bearer token (pour les agents & MCP)
   try {
+    const h = await headers();
+    const authHeader = h.get("authorization");
+    const apiKeyHeader = h.get("x-api-key");
+    const token = authHeader?.startsWith("Bearer ")
+      ? authHeader.slice(7).trim()
+      : apiKeyHeader?.trim();
+
+    if (token && verifyApiKey(token)) {
+      return true;
+    }
+  } catch {
+    // headers() peut ne pas être disponible dans certains contextes
+  }
+
+  // 2. Authentification par cookie de session (interface web)
+  try {
+    const token = (await cookies()).get(COOKIE_NAME)?.value;
+    if (!token) return false;
     const { payload } = await jwtVerify(token, getSecret());
     return payload.role === "admin";
   } catch {

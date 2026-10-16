@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "signflow": {
+      "command": "node",
+      "args": ["c:/Users/alire/Projects/signflow/scripts/mcp-server.mjs"],
+      "env": {
+        "SIGNFLOW_BASE_URL": "https://paraph.dcode-lab.com",
+        "SIGNFLOW_API_KEY": "admin"
+      }
+    }
+  }
+}

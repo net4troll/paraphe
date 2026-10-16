@@ -9,9 +9,12 @@
     "cert:generate": "node scripts/generate-cert.mjs",
     "cert:status": "node scripts/generate-cert.mjs --status",
     "db:migrate": "prisma migrate deploy",
-    "smoke": "tsx scripts/smoke-test.mjs"
+    "smoke": "tsx scripts/smoke-test.mjs",
+    "mcp": "node scripts/mcp-server.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@napi-rs/canvas": "^1.0.11",
     "@phosphor-icons/react": "^2.1.10",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
