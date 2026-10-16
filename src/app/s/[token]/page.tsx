@@ -1,16 +1,7 @@
-import dynamicClient from "next/dynamic";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { companyName } from "@/lib/mail";
-
-const SigningClient = dynamicClient(() => import("./SigningClient"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">
-      Chargement de l&apos;espace de signature…
-    </div>
-  ),
-});
+import SigningClient from "./SigningClient";
 
 export const dynamic = "force-dynamic";
 
