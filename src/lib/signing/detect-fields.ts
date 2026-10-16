@@ -66,7 +66,7 @@ export async function detectFields(pdfBytes: Buffer): Promise<DetectedField[]> {
     const acroFields = await detectAcroFormsFromPdf(pdf);
     if (acroFields.length > 0) {
       console.log(`[detectFields] ${acroFields.length} champ(s) AcroForms natif(s) détecté(s).`);
-      return deduplicateFields(acroFields);
+      return acroFields;
     }
   } catch (err) {
     console.error("[detectFields] Erreur lecture AcroForms:", err);
