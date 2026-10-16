@@ -95,7 +95,7 @@ export async function detectAcroFormsFromPdf(
       let signerHint: string | undefined;
       if (/organisateur/i.test(nameLower)) {
         signerHint = "organisateur";
-      } else if (/sponsor|partenaire|client/i.test(nameLower)) {
+      } else if (/sponsor|partenaire|client|societe|adresse|siret|representant/i.test(nameLower)) {
         signerHint = "partenaire";
       }
 

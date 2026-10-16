@@ -253,7 +253,7 @@ export default function SigningClient(props: Props) {
   ];
 
   return (
-    <main className="min-h-screen pb-28">
+    <main className="min-h-screen pb-40 sm:pb-28">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <LogoMark size={30} />
@@ -491,9 +491,9 @@ export default function SigningClient(props: Props) {
       </div>
 
       {/* Barre d'action fixe : consentement + état + CTA */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
-          <label className="flex min-w-0 flex-1 items-start gap-2.5 text-xs leading-snug text-slate-600">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur-sm shadow-lg">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <label className="flex min-w-0 items-start gap-2.5 text-xs leading-snug text-slate-600 sm:flex-1">
             <input
               type="checkbox"
               checked={consent}
@@ -505,19 +505,21 @@ export default function SigningClient(props: Props) {
               m&apos;engage sur le présent document.
             </span>
           </label>
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
             {ready ? (
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-brand-700">
+              <span className="flex items-center justify-center gap-1.5 text-xs font-semibold text-brand-700 sm:justify-start">
                 <Check size={14} weight="bold" /> Prêt à signer
               </span>
             ) : (
-              <span className="text-xs text-slate-400">Il reste : {missing.join(" · ")}</span>
+              <span className="text-center text-xs text-slate-500 sm:text-left">
+                Il reste : {missing.join(" · ")}
+              </span>
             )}
             <button
               type="button"
               disabled={!ready || loading}
               onClick={() => padRef.current?.submit()}
-              className="rounded-lg bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-40"
+              className="w-full rounded-lg bg-brand-700 px-5 py-2.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
             >
               {loading ? "Signature…" : "Signer le document"}
             </button>

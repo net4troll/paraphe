@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { isAdmin } from "@/lib/auth";
 import { readStoredFile, versionPath, ensureDocumentDir } from "@/lib/storage";
 import { stampFieldValues, type FieldToStamp } from "@/lib/signing/stamp-fields";
+import { stampDocumentWithFields } from "@/lib/agent/service";
 import { sendFinalPdf, sendInvitations, pdfFileName } from "@/lib/notify";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -57,31 +58,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     });
 
     // Tamponnage préalable de tous les champs préremplis par l'admin sur le PDF de base
-    const presetFields = await db.field.findMany({
-      where: {
-        documentId: id,
-        presetValue: { not: null },
-      },
-      orderBy: { createdAt: "asc" },
-    });
-    const validPresets = presetFields.filter((f) => f.presetValue && f.presetValue.trim() !== "");
-    let nextCurrentPath = document.originalPath;
-    if (validPresets.length > 0) {
-      const fieldsToStamp: FieldToStamp[] = validPresets.map((f) => ({
-        type: f.type,
-        label: f.label,
-        value: f.type === "checkbox" ? f.presetValue === "true" : f.presetValue!,
-        page: f.page,
-        xPct: f.xPct,
-        yPct: f.yPct,
-        widthPct: f.widthPct,
-      }));
-      const base = await readStoredFile(document.originalPath);
-      const stampedPdf = await stampFieldValues(base, fieldsToStamp);
-      nextCurrentPath = versionPath(document.id, 0);
-      await ensureDocumentDir(document.id);
-      await fs.writeFile(nextCurrentPath, stampedPdf);
-    }
+    await stampDocumentWithFields(id);
 
     const results = await sendInvitations(document);
     const failed = results.filter((r) => !r.sent && !r.skipped);
@@ -98,7 +75,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     }
     await db.document.update({
       where: { id },
-      data: { currentPath: nextCurrentPath, status: "pending" },
+      data: { status: "pending" },
     });
     const noEmail = results.length === 0;
     const smtpSkipped = results.some((r) => r.skipped);

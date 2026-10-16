@@ -95,9 +95,15 @@ export async function POST(request: Request, { params }: RouteContext) {
     const raw = parsed.data.values[field.id];
     const label = field.label;
 
-    // Champ prérempli par l'admin : valeur fixe, non exigée du signataire.
+    // Champ prérempli : si le signataire ne l'a pas modifié, on conserve le preset.
+    // S'il l'a modifié, on valide et applique sa nouvelle valeur.
     const preset = field.presetValue?.trim() ?? "";
-    if (preset) {
+    const hasUserVal =
+      raw !== undefined &&
+      raw !== null &&
+      (field.type === "checkbox" ? typeof raw === "boolean" : String(raw).trim() !== "");
+
+    if (preset && !hasUserVal) {
       presetFieldsToStamp.push({
         type: field.type,
         label,
@@ -108,6 +114,13 @@ export async function POST(request: Request, { params }: RouteContext) {
         widthPct: field.widthPct,
       });
       continue;
+    }
+
+    if (preset && hasUserVal) {
+      await db.field.update({
+        where: { id: field.id },
+        data: { presetValue: String(raw) },
+      });
     }
 
     if (field.type === "checkbox") {

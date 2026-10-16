@@ -47,9 +47,9 @@ export async function stampFieldValues(
     if (!page) continue;
     const { width, height } = page.getSize();
 
-    const boxW = clamp(field.widthPct, 0.1, 0.6) * width;
-    const boxX = clamp(field.xPct, 0.03, 0.97) * width - boxW / 2;
-    const topY = height - clamp(field.yPct, 0.03, 0.97) * height;
+    const boxW = clamp(field.widthPct, 0.04, 0.9) * width;
+    const boxX = clamp(field.xPct, 0.02, 0.98) * width - boxW / 2;
+    const topY = height - clamp(field.yPct, 0.02, 0.98) * height;
 
     const isCheckbox = field.type === "checkbox";
     const isArea = field.type === "textarea";
@@ -82,6 +82,13 @@ export async function stampFieldValues(
 
     // Texte embriqué directement dans le PDF — aucun cadre ni libellé artificiel
     try {
+      page.drawRectangle({
+        x: Math.max(0, boxX - 1),
+        y: Math.max(0, rectY),
+        width: boxW + 2,
+        height: boxH,
+        color: rgb(1, 1, 1),
+      });
       if (isArea) {
         const size = 9;
         const lineHeight = 12;

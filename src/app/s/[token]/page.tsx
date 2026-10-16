@@ -9,14 +9,21 @@ export default async function SignPage({ params }: { params: Promise<{ token: st
   const { token } = await params;
   const signer = await db.signer.findUnique({
     where: { token },
-    include: { document: true },
+    include: {
+      document: {
+        include: { signers: true },
+      },
+    },
   });
   if (!signer) notFound();
 
+  const isSoleSigner = (signer.document.signers?.length ?? 0) <= 1;
   const fields = await db.field.findMany({
     where: {
       documentId: signer.documentId,
-      signerId: signer.id,
+      ...(isSoleSigner
+        ? { OR: [{ signerId: signer.id }, { signerId: null }] }
+        : { signerId: signer.id }),
     },
     orderBy: { createdAt: "asc" },
   });

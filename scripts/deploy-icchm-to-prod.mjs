@@ -86,6 +86,9 @@ async function main() {
   });
   console.log(`✅ ${fillResult.updatedCount}/${fillResult.totalFields} champs remplis.`);
 
+  console.log("Envoi / Activation du document sur PROD...");
+  await callProd("send_document", { documentId: docId });
+
   // 3. Récupération des statuts et URLs finales de production
   const details = await callProd("get_status", { documentId: docId });
 

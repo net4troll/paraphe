@@ -274,6 +274,8 @@ export async function stampDocumentWithFields(docId: string): Promise<string> {
   // 1. Remplissage direct des formulaires AcroForms natifs si le PDF en dispose
   const { PDFDocument } = await import("pdf-lib");
   const doc = await PDFDocument.load(base, { ignoreEncryption: true });
+  const matchedFieldIds = new Set<string>();
+
   try {
     const form = doc.getForm();
     const acroFields = form.getFields();
@@ -285,11 +287,19 @@ export async function stampDocumentWithFields(docId: string): Promise<string> {
           const normAcro = af.getName().trim().toLowerCase().replace(/[\s_\-]+/g, "");
           if (normAcro === normField) {
             try {
-              if (af.constructor.name === "PDFTextField") {
-                (af as any).setText(f.presetValue);
+              if (typeof (af as any).setText === "function") {
+                (af as any).setText(String(f.presetValue));
+                matchedFieldIds.add(f.id);
+              } else if (typeof (af as any).check === "function") {
+                if (f.presetValue === "true" || f.presetValue === "1") {
+                  (af as any).check();
+                } else {
+                  (af as any).uncheck?.();
+                }
+                matchedFieldIds.add(f.id);
               }
-            } catch {
-              // ignore
+            } catch (err) {
+              console.warn(`[stampDocumentWithFields] Erreur sur champ AcroForm ${af.getName()}:`, err);
             }
           }
         }
@@ -301,12 +311,15 @@ export async function stampDocumentWithFields(docId: string): Promise<string> {
   }
 
   // 2. Tamponnage visuel pour les autres champs ou PDF non-AcroForms
-  const validPresets = document.fields.filter(
-    (f) => f.presetValue && f.presetValue.trim() !== ""
+  const remainingPresets = document.fields.filter(
+    (f) => !matchedFieldIds.has(f.id) && f.presetValue && f.presetValue.trim() !== ""
   );
+
   let finalPdfBytes: Buffer;
-  if (validPresets.length > 0) {
-    const fieldsToStamp: FieldToStamp[] = validPresets.map((f) => ({
+  const intermediateBytes = Buffer.from(await doc.save({ useObjectStreams: false }));
+
+  if (remainingPresets.length > 0) {
+    const fieldsToStamp: FieldToStamp[] = remainingPresets.map((f) => ({
       type: f.type,
       label: f.label,
       value: f.type === "checkbox" ? f.presetValue === "true" : f.presetValue!,
@@ -315,10 +328,9 @@ export async function stampDocumentWithFields(docId: string): Promise<string> {
       yPct: f.yPct,
       widthPct: f.widthPct,
     }));
-    const intermediateBytes = Buffer.from(await doc.save({ useObjectStreams: false }));
     finalPdfBytes = await stampFieldValues(intermediateBytes, fieldsToStamp);
   } else {
-    finalPdfBytes = Buffer.from(await doc.save({ useObjectStreams: false }));
+    finalPdfBytes = intermediateBytes;
   }
 
   await ensureDocumentDir(document.id);
@@ -401,36 +413,15 @@ export async function agentSendDocument(docId: string) {
     }
   }
 
-  // Tamponnage des champs préremplis si présents
-  const presetFields = await db.field.findMany({
-    where: { documentId: docId, presetValue: { not: null } },
-  });
-  const validPresets = presetFields.filter((f) => f.presetValue && f.presetValue.trim() !== "");
-  let nextCurrentPath = document.originalPath;
-
-  if (validPresets.length > 0) {
-    const fieldsToStamp: FieldToStamp[] = validPresets.map((f) => ({
-      type: f.type,
-      label: f.label,
-      value: f.type === "checkbox" ? f.presetValue === "true" : f.presetValue!,
-      page: f.page,
-      xPct: f.xPct,
-      yPct: f.yPct,
-      widthPct: f.widthPct,
-    }));
-    const base = await readStoredFile(document.originalPath);
-    const stampedPdf = await stampFieldValues(base, fieldsToStamp);
-    nextCurrentPath = versionPath(document.id, 0);
-    await ensureDocumentDir(document.id);
-    await fs.writeFile(nextCurrentPath, stampedPdf);
-  }
+  // Tamponnage et figement des champs préremplis si présents
+  await stampDocumentWithFields(docId);
 
   // Envoi des emails d'invitation (si SMTP configuré)
   const results = await sendInvitations(document);
 
   await db.document.update({
     where: { id: docId },
-    data: { currentPath: nextCurrentPath, status: "pending" },
+    data: { status: "pending" },
   });
 
   return await agentGetDocumentDetails(docId);
