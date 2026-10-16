@@ -92,6 +92,13 @@ export async function detectAcroFormsFromPdf(
         }
       }
 
+      let signerHint: string | undefined;
+      if (/organisateur/i.test(nameLower)) {
+        signerHint = "organisateur";
+      } else if (/sponsor|partenaire|client/i.test(nameLower)) {
+        signerHint = "partenaire";
+      }
+
       fields.push({
         type,
         label: cleanLabel(rawName) || "Champ",
@@ -99,6 +106,7 @@ export async function detectAcroFormsFromPdf(
         xPct,
         yPct,
         widthPct: type === "checkbox" ? Math.max(widthPct, 0.03) : widthPct,
+        signerHint,
         source: "acroform",
       });
     }

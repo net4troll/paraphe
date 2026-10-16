@@ -268,11 +268,12 @@ export async function agentFillFields(
   let updatedCount = 0;
 
   for (const [key, val] of Object.entries(values)) {
-    const target = fields.find(
-      (f) =>
-        f.id === key ||
-        f.label.trim().toLowerCase() === key.trim().toLowerCase()
-    );
+    const normKey = key.trim().toLowerCase().replace(/[\s_\-]+/g, "");
+    const target = fields.find((f) => {
+      if (f.id === key) return true;
+      const normLabel = f.label.trim().toLowerCase().replace(/[\s_\-]+/g, "");
+      return normLabel === normKey;
+    });
     if (!target) continue;
 
     await db.field.update({
@@ -375,6 +376,7 @@ export async function agentGetDocumentDetails(docId: string) {
     name: s.name,
     email: s.email,
     role: s.role,
+    page: s.page,
     status: s.status,
     signedAt: s.signedAt,
     signingUrl: `${baseUrl}/s/${s.token}`,
