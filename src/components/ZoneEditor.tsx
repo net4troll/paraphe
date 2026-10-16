@@ -310,7 +310,7 @@ export default function ZoneEditor({
       label: field.label,
       type: field.type,
       options: field.options.join(", "),
-      preset: field.presetValue,
+      preset: field.presetValue || (!field.signerId ? field.label : ""),
       signerId: field.signerId,
     });
   }
@@ -322,16 +322,34 @@ export default function ZoneEditor({
         ? modalDraft.options.split(",").map((o) => o.trim()).filter(Boolean)
         : [];
 
+    const presetValue =
+      modalDraft.preset.trim() || (!modalDraft.signerId ? modalDraft.label.trim() : "");
+
     onUpdateField(modalField.id, {
       label: modalDraft.label.trim(),
       type: modalDraft.type,
       options,
-      presetValue: modalDraft.preset.trim(),
+      presetValue,
     });
 
     if (modalDraft.signerId !== modalField.signerId) {
       onReassignField(modalField.id, modalDraft.signerId);
     }
+
+    setLocalFields((prev) =>
+      prev.map((f) =>
+        f.id === modalField.id
+          ? {
+              ...f,
+              label: modalDraft.label.trim(),
+              type: modalDraft.type,
+              options,
+              presetValue,
+              signerId: modalDraft.signerId,
+            }
+          : f
+      )
+    );
 
     setModalField(null);
   }
@@ -1064,7 +1082,7 @@ export default function ZoneEditor({
         )}
       </div>
 
-      {/* 4. Modal épuré pour modifier un champ (remplace window.prompt) */}
+      {/* 4. Modal complet et unifié pour modifier tout champ ou texte direct (avec conversion de type et d'attribution) */}
       {modalField && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
           <div
@@ -1072,9 +1090,16 @@ export default function ZoneEditor({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-semibold text-slate-900">
-                {modalField.signerId ? "Propriétés du champ" : "Texte intégré au PDF"}
-              </h3>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">
+                  {modalDraft.signerId ? "Paramètres du champ" : "Paramètres du texte PDF"}
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  {modalDraft.signerId
+                    ? "Champ interactif assigné à un signataire"
+                    : "Texte imprimé directement sur le PDF"}
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setModalField(null)}
@@ -1084,91 +1109,131 @@ export default function ZoneEditor({
               </button>
             </div>
 
-            <div className="mt-4 space-y-3.5">
+            <div className="mt-4 space-y-3.5 max-h-[70vh] overflow-y-auto pr-1">
+              {/* Attribution : permet de convertir immédiatement vers un signataire ou vers texte PDF */}
               <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  {modalField.signerId ? "Libellé du champ" : "Texte à inscrire"}
+                <label className="block text-xs font-semibold text-slate-700">
+                  Attribution & Destinataire
+                </label>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setModalDraft({ ...modalDraft, signerId: null })}
+                    className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+                      modalDraft.signerId === null
+                        ? "border-slate-900 bg-slate-900 text-white font-semibold shadow-xs"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                    }`}
+                  >
+                    <span>📄</span>
+                    <span>Texte direct (PDF)</span>
+                  </button>
+                  {localSigners.map((s, i) => {
+                    const color = ZONE_COLORS[i % ZONE_COLORS.length];
+                    const active = modalDraft.signerId === s.id;
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() =>
+                          setModalDraft({
+                            ...modalDraft,
+                            signerId: s.id,
+                            label: modalDraft.label || "Champ",
+                          })
+                        }
+                        className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+                          active
+                            ? `${color.border} ${color.bg} ${color.text} font-semibold shadow-xs ring-1 ring-slate-900/10`
+                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                        }`}
+                      >
+                        <span className={`h-2 w-2 rounded-full ${color.solid}`} />
+                        <span>{s.name}</span>
+                        <span className="text-[10px] opacity-70">({s.role})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {modalDraft.signerId
+                    ? "Converti en champ que le signataire pourra remplir ou valider."
+                    : "Inscrit directement dans le document PDF."}
+                </p>
+              </div>
+
+              {/* Libellé / Titre du champ */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700">
+                  {modalDraft.signerId ? "Libellé du champ" : "Texte / Libellé"}
                 </label>
                 <input
                   type="text"
                   value={modalDraft.label}
                   onChange={(e) => setModalDraft({ ...modalDraft, label: e.target.value })}
+                  placeholder={
+                    modalDraft.signerId ? "Ex : Fonction, SIRET, Téléphone..." : "Texte à inscrire..."
+                  }
                   className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600"
                   autoFocus
                 />
               </div>
 
-              {modalField.signerId && (
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700">Type de champ</label>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {FIELD_TOOLS.map((t) => (
-                        <button
-                          key={t.type}
-                          type="button"
-                          onClick={() => setModalDraft({ ...modalDraft, type: t.type })}
-                          className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
-                            modalDraft.type === t.type
-                              ? "border-slate-900 bg-slate-900 text-white"
-                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                          }`}
-                        >
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+              {/* Type de champ (Texte, Date, Nombre, Case, Commentaire, Liste) */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700">Type de champ</label>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {FIELD_TOOLS.map((t) => (
+                    <button
+                      key={t.type}
+                      type="button"
+                      onClick={() => setModalDraft({ ...modalDraft, type: t.type })}
+                      className={`flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+                        modalDraft.type === t.type
+                          ? "border-slate-900 bg-slate-900 text-white font-semibold shadow-xs"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                      }`}
+                    >
+                      <span>{t.icon}</span>
+                      <span>{t.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700">
-                      Valeur préremplie (optionnel)
-                    </label>
-                    <input
-                      type="text"
-                      value={modalDraft.preset}
-                      onChange={(e) => setModalDraft({ ...modalDraft, preset: e.target.value })}
-                      placeholder="Laisser vide si à remplir par le signataire"
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700">Attribution</label>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {localSigners.map((s, i) => {
-                        const color = ZONE_COLORS[i % ZONE_COLORS.length];
-                        const active = modalDraft.signerId === s.id;
-                        return (
-                          <button
-                            key={s.id}
-                            type="button"
-                            onClick={() => setModalDraft({ ...modalDraft, signerId: s.id })}
-                            className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
-                              active
-                                ? `${color.border} ${color.bg} ${color.text} font-semibold shadow-xs`
-                                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                            }`}
-                          >
-                            {s.name}
-                          </button>
-                        );
-                      })}
-                      <button
-                        type="button"
-                        onClick={() => setModalDraft({ ...modalDraft, signerId: null })}
-                        className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
-                          modalDraft.signerId === null
-                            ? "border-slate-900 bg-slate-900 text-white font-semibold"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                        }`}
-                      >
-                        Texte direct (PDF)
-                      </button>
-                    </div>
-                  </div>
-                </>
+              {/* Options de liste pour select */}
+              {modalDraft.type === "select" && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Options de la liste (séparées par une virgule)
+                  </label>
+                  <input
+                    type="text"
+                    value={modalDraft.options}
+                    onChange={(e) => setModalDraft({ ...modalDraft, options: e.target.value })}
+                    placeholder="Option 1, Option 2, Option 3"
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600"
+                  />
+                </div>
               )}
+
+              {/* Valeur pré-remplie */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700">
+                  {modalDraft.signerId ? "Valeur pré-remplie (optionnel)" : "Contenu texte"}
+                </label>
+                <input
+                  type="text"
+                  value={modalDraft.preset}
+                  onChange={(e) => setModalDraft({ ...modalDraft, preset: e.target.value })}
+                  placeholder={
+                    modalDraft.signerId
+                      ? "Laisser vide si à remplir par le signataire"
+                      : "Texte affiché sur le document"
+                  }
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600"
+                />
+              </div>
             </div>
 
             <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
