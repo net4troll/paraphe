@@ -38,17 +38,17 @@ export async function stampSignature(
   const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
   const regularFont = await doc.embedFont(StandardFonts.Helvetica);
 
-  // 1. Dimensions du cadre cible (Zone de signature)
-  const zoneWidthPct = clamp(zone.widthPct || DEFAULT_SIGNATURE_WIDTH_PCT, 0.08, 0.6);
+  // 1. Dimensions du cadre cible (Zone de signature définie à l'édit ou détectée)
+  const zoneWidthPct = clamp(zone.widthPct || DEFAULT_SIGNATURE_WIDTH_PCT, 0.05, 0.9);
   const boxWidth = zoneWidthPct * width;
 
-  // Hauteur du cadre : si spécifiée (ex: AcroForms), sinon ratio proportionnel standard (ZoneEditor / ratio 1:4)
+  // Hauteur du cadre : si spécifiée (détectée ou éditée), sinon ratio proportionnel standard (ZoneEditor / ratio standard)
   const boxHeight = zone.heightPct
-    ? clamp(zone.heightPct, 0.02, 0.3) * height
-    : clamp(boxWidth * 0.24, 35, 65);
+    ? clamp(zone.heightPct, 0.01, 0.6) * height
+    : clamp(boxWidth * 0.24, 25, 140);
 
   const cx = clamp(zone.xPct, 0.03, 0.97) * width;
-  const topY = height - clamp(zone.yPct, 0.02, 0.98) * height;
+  const topY = height - clamp(zone.yPct, 0.01, 0.99) * height;
   const bottomY = topY - boxHeight;
   const centerY = (topY + bottomY) / 2;
 
@@ -60,20 +60,32 @@ export async function stampSignature(
     timeStyle: "short",
   })}`;
 
-  // Ajustement fin de la taille de texte selon l'espace disponible
-  const isCompact = boxHeight < 48;
-  const nameSize = isCompact ? 6.5 : 7.5;
-  const dateSize = isCompact ? 5 : 5.5;
+  // Tailles de texte adaptatives selon la hauteur et la largeur de la zone
+  let nameSize = clamp(boxHeight * 0.14, 5, 8.5);
+  let dateSize = clamp(boxHeight * 0.10, 4.2, 6.5);
 
-  const nameWidth = boldFont.widthOfTextAtSize(nameLine, nameSize);
-  const dateWidth = regularFont.widthOfTextAtSize(dateLine, dateSize);
+  let nameWidth = boldFont.widthOfTextAtSize(nameLine, nameSize);
+  let dateWidth = regularFont.widthOfTextAtSize(dateLine, dateSize);
+
+  // Si le texte est plus large que le cadre (avec 8pt de marge latérale), on adapte la taille
+  const maxTextWidth = Math.max(20, boxWidth - 8);
+  if (nameWidth > maxTextWidth) {
+    const ratio = maxTextWidth / nameWidth;
+    nameSize = Math.max(4.5, nameSize * ratio);
+    nameWidth = boldFont.widthOfTextAtSize(nameLine, nameSize);
+  }
+  if (dateWidth > maxTextWidth) {
+    const ratio = maxTextWidth / dateWidth;
+    dateSize = Math.max(3.8, dateSize * ratio);
+    dateWidth = regularFont.widthOfTextAtSize(dateLine, dateSize);
+  }
 
   // Budget de hauteur pour le texte (nom + date + espacements)
   const textBudget = nameSize + 2 + dateSize + 3;
 
   // 3. Dimensionnement proportionnel du tracé de signature (doit tenir DANS le cadre)
-  const maxImgW = Math.max(30, boxWidth - 16);
-  const maxImgH = Math.max(16, boxHeight - textBudget - 4);
+  const maxImgW = Math.max(20, boxWidth - 10);
+  const maxImgH = Math.max(12, boxHeight - textBudget - 4);
 
   const scale = Math.min(maxImgW / image.width, maxImgH / image.height);
   const imgW = image.width * scale;

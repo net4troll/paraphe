@@ -102,6 +102,7 @@ export default function DocumentDetail({
     xPct: s.xPct,
     yPct: s.yPct,
     widthPct: s.widthPct,
+    heightPct: s.heightPct,
   }));
 
   async function handleReopenForEdit() {
@@ -244,14 +245,21 @@ export default function DocumentDetail({
     }
   }
 
-  async function placeZone(signerId: string, page: number, xPct: number, yPct: number) {
+  async function placeZone(
+    signerId: string,
+    page: number,
+    xPct: number,
+    yPct: number,
+    widthPct?: number,
+    heightPct?: number
+  ) {
     setBusy(`zone-${signerId}`);
     setMessage(null);
     try {
       const res = await fetch(`/api/documents/${doc.id}/zone`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signerId, page, xPct, yPct }),
+        body: JSON.stringify({ signerId, page, xPct, yPct, widthPct, heightPct }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -375,7 +383,7 @@ export default function DocumentDetail({
 
   async function moveZone(
     signerId: string,
-    geom: { page: number; xPct: number; yPct: number; widthPct: number }
+    geom: { page: number; xPct: number; yPct: number; widthPct: number; heightPct?: number }
   ) {
     const res = await fetch(`/api/documents/${doc.id}/zone`, {
       method: "PATCH",

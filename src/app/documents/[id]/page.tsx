@@ -53,6 +53,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
           xPct: s.xPct,
           yPct: s.yPct,
           widthPct: s.widthPct,
+          heightPct: s.heightPct,
           signedAt: s.signedAt?.toISOString() ?? null,
         })),
       }}

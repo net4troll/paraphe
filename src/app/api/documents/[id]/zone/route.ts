@@ -11,7 +11,8 @@ const zoneSchema = z.object({
   page: z.number().int().min(0).max(999).optional(),
   xPct: z.number().min(0).max(1).optional(),
   yPct: z.number().min(0).max(1).optional(),
-  widthPct: z.number().min(0.1).max(0.6).optional(),
+  widthPct: z.number().min(0.05).max(0.9).optional(),
+  heightPct: z.number().min(0.01).max(0.6).optional(),
 });
 
 export async function PATCH(request: Request, { params }: RouteContext) {
@@ -47,7 +48,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   if (parsed.data.clear) {
     await db.signer.update({
       where: { id: signer.id },
-      data: { page: null, xPct: null, yPct: null },
+      data: { page: null, xPct: null, yPct: null, widthPct: null, heightPct: null },
     });
     return NextResponse.json({ ok: true });
   }
@@ -67,6 +68,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       xPct: parsed.data.xPct,
       yPct: parsed.data.yPct,
       ...(parsed.data.widthPct !== undefined ? { widthPct: parsed.data.widthPct } : {}),
+      ...(parsed.data.heightPct !== undefined ? { heightPct: parsed.data.heightPct } : {}),
     },
   });
   return NextResponse.json({ ok: true });

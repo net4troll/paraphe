@@ -209,6 +209,7 @@ export async function agentDetectAndSaveFields(docId: string, replace = true) {
         xPct: spot.xPct,
         yPct: spot.yPct,
         widthPct: spot.widthPct ?? 0.26,
+        heightPct: spot.heightPct ?? null,
       },
     });
     signatureZones++;

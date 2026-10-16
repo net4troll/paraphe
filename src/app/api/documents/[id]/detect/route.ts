@@ -81,6 +81,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
         xPct: spot.xPct,
         yPct: spot.yPct,
         widthPct: spot.widthPct ?? 0.26,
+        heightPct: spot.heightPct ?? null,
       },
     });
     signatureZones += 1;

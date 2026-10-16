@@ -61,6 +61,7 @@ model Signer {
   xPct       Float?
   yPct       Float?
   widthPct   Float?
+  heightPct  Float?
   signedAt   DateTime?
   ip         String?
   userAgent  String?

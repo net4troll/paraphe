@@ -82,6 +82,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     xPct: signer.xPct,
     yPct: signer.yPct,
     widthPct: signer.widthPct ?? 0.26,
+    heightPct: signer.heightPct ?? undefined,
   };
 
   // Champs du signataire : validation des valeurs par type avant tamponnage.

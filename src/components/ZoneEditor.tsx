@@ -25,6 +25,7 @@ export type ZoneSigner = {
   xPct: number | null;
   yPct: number | null;
   widthPct: number | null;
+  heightPct?: number | null;
 };
 
 export type FieldType = "text" | "textarea" | "date" | "number" | "checkbox" | "select";
@@ -80,24 +81,27 @@ const FIELD_HEIGHT_PCT: Record<FieldType, number> = {
   select: 2.6,
 };
 
-const WIDTH_HANDLES = [
-  { side: "w" as const, className: "-left-2.5 top-1/2 -translate-y-1/2 cursor-ew-resize" },
-  { side: "e" as const, className: "-right-2.5 top-1/2 -translate-y-1/2 cursor-ew-resize" },
+const RESIZE_HANDLES = [
+  { side: "w" as const, className: "-left-2.5 top-1/2 -translate-y-1/2 cursor-ew-resize", label: "Largeur gauche" },
+  { side: "e" as const, className: "-right-2.5 top-1/2 -translate-y-1/2 cursor-ew-resize", label: "Largeur droite" },
+  { side: "s" as const, className: "left-1/2 -bottom-2.5 -translate-x-1/2 cursor-ns-resize", label: "Hauteur bas" },
+  { side: "se" as const, className: "-right-2.5 -bottom-2.5 cursor-nwse-resize", label: "Coin redimensionnement" },
 ];
 
-type Geometry = { page: number; xPct: number; yPct: number; widthPct: number };
+type Geometry = { page: number; xPct: number; yPct: number; widthPct: number; heightPct?: number };
 
 type Gesture = {
   kind: "zone" | "field";
   id: string;
   mode: "move" | "resize";
-  side: "w" | "e";
+  side: "w" | "e" | "s" | "se";
   pageEl: HTMLElement;
   startClientX: number;
   startClientY: number;
   startX: number;
   startY: number;
   startW: number;
+  startH: number;
   lastGeometry?: Geometry;
   moved?: boolean;
 };
@@ -129,7 +133,14 @@ export default function ZoneEditor({
   fileUrl: string;
   signers: ZoneSigner[];
   fields: FieldView[];
-  onPlace: (signerId: string, page: number, xPct: number, yPct: number) => void;
+  onPlace: (
+    signerId: string,
+    page: number,
+    xPct: number,
+    yPct: number,
+    widthPct?: number,
+    heightPct?: number
+  ) => void;
   onAddField: (
     signerId: string | null,
     type: FieldType,
@@ -332,7 +343,10 @@ export default function ZoneEditor({
     return Math.min(0.97, Math.max(0.03, v));
   }
   function clampW(v: number) {
-    return Math.min(0.6, Math.max(0.08, v));
+    return Math.min(0.85, Math.max(0.06, v));
+  }
+  function clampH(v: number) {
+    return Math.min(0.5, Math.max(0.02, v));
   }
 
   const selectedSigner =
@@ -343,7 +357,7 @@ export default function ZoneEditor({
     kind: "zone" | "field",
     id: string,
     mode: "move" | "resize",
-    side: "w" | "e",
+    side: "w" | "e" | "s" | "se",
     start: Geometry,
     event: GestureEvent
   ) {
@@ -367,6 +381,7 @@ export default function ZoneEditor({
       startX: start.xPct,
       startY: start.yPct,
       startW: start.widthPct,
+      startH: start.heightPct ?? (start.widthPct * 0.24),
     };
 
     try {
@@ -387,18 +402,32 @@ export default function ZoneEditor({
       if (Math.hypot(dxPx, dyPx) > 4) gesture.moved = true;
 
       const dxPct = dxPx / rect.width;
+      const dyPct = dyPx / rect.height;
+
       if (gesture.mode === "resize") {
-        const dir = gesture.side === "w" ? -1 : 1;
-        const widthPct = clampW(gesture.startW + 2 * dxPct * dir);
-        gesture.lastGeometry = {
+        let widthPct = gesture.startW;
+        let heightPct = gesture.startH;
+
+        if (gesture.side === "w" || gesture.side === "e" || gesture.side === "se") {
+          const dir = gesture.side === "w" ? -1 : 1;
+          widthPct = clampW(gesture.startW + 2 * dxPct * dir);
+        }
+        if (gesture.side === "s" || gesture.side === "se") {
+          heightPct = clampH(gesture.startH + dyPct);
+        }
+
+        const geometry: Geometry = {
           page: Number(gesture.pageEl.dataset.page ?? 0),
           xPct: gesture.startX,
           yPct: gesture.startY,
           widthPct,
+          heightPct,
         };
+        gesture.lastGeometry = geometry;
+
         if (gesture.kind === "zone") {
           setLocalSigners((prev) =>
-            prev.map((s) => (s.id === gesture.id ? { ...s, widthPct } : s))
+            prev.map((s) => (s.id === gesture.id ? { ...s, widthPct, heightPct } : s))
           );
         } else {
           setLocalFields((prev) =>
@@ -408,12 +437,12 @@ export default function ZoneEditor({
         return;
       }
 
-      const dyPct = dyPx / rect.height;
       const geometry: Geometry = {
         page: Number(gesture.pageEl.dataset.page ?? 0),
         xPct: clampX(gesture.startX + dxPct),
         yPct: clampY(gesture.startY + dyPct),
         widthPct: gesture.startW,
+        heightPct: gesture.startH,
       };
       gesture.lastGeometry = geometry;
 
@@ -421,7 +450,7 @@ export default function ZoneEditor({
         setLocalSigners((prev) =>
           prev.map((s) =>
             s.id === gesture.id
-              ? { ...s, page: geometry.page, xPct: geometry.xPct, yPct: geometry.yPct }
+              ? { ...s, page: geometry.page, xPct: geometry.xPct, yPct: geometry.yPct, heightPct: geometry.heightPct }
               : s
           )
         );
@@ -476,7 +505,7 @@ export default function ZoneEditor({
         alert("Sélectionnez un signataire pour lui attribuer une zone de signature.");
         return;
       }
-      onPlace(selectedSigner.id, pageIndex, xPct, yPct);
+      onPlace(selectedSigner.id, pageIndex, xPct, yPct, 0.28, 0.08);
       setTool(null);
     } else if (tool === "pdf_text") {
       setPendingNewText({
@@ -501,10 +530,15 @@ export default function ZoneEditor({
 
   function renderHandles(kind: "zone" | "field", id: string, geometry: Geometry) {
     if (!selected || selected.kind !== kind || selected.id !== id) return null;
-    return WIDTH_HANDLES.map((handle) => (
+    const handles =
+      kind === "zone"
+        ? RESIZE_HANDLES
+        : RESIZE_HANDLES.filter((h) => h.side === "w" || h.side === "e");
+    return handles.map((handle) => (
       <div
         key={handle.side}
         onPointerDown={(e) => beginGesture(kind, id, "resize", handle.side, geometry, e)}
+        title={handle.label}
         className={`absolute z-20 h-4 w-4 rounded-full border-2 border-white bg-slate-900 shadow-md ${handle.className}`}
       />
     ));
@@ -655,11 +689,13 @@ export default function ZoneEditor({
                     return null;
                   const zoneColor = ZONE_COLORS[i % ZONE_COLORS.length];
                   const wPct = signer.widthPct ?? 0.26;
+                  const hPct = signer.heightPct ?? (wPct * 0.24);
                   const geometry: Geometry = {
                     page: pageIndex,
                     xPct: signer.xPct,
                     yPct: signer.yPct,
                     widthPct: wPct,
+                    heightPct: hPct,
                   };
                   const isSelected = selected?.kind === "zone" && selected.id === signer.id;
 
@@ -674,15 +710,15 @@ export default function ZoneEditor({
                         setSelected({ kind: "zone", id: signer.id });
                       }}
                       className={`absolute z-10 ${zoneColor.border} ${
-                        isSelected ? "bg-teal-600/20" : zoneColor.bg
+                        isSelected ? "bg-teal-600/20 ring-2 ring-slate-900 shadow-lg" : zoneColor.bg
                       } cursor-move rounded border-2 ${
-                        isSelected ? "border-solid border-slate-900 shadow-lg" : "border-dashed"
-                      }`}
+                        isSelected ? "border-solid" : "border-dashed"
+                      } transition-colors overflow-hidden flex flex-col justify-between`}
                       style={{
                         left: `${signer.xPct * 100}%`,
                         top: `${signer.yPct * 100}%`,
                         width: `${wPct * 100}%`,
-                        height: `${wPct * 23.6}%`,
+                        height: `${hPct * 100}%`,
                         transform: "translateX(-50%)",
                         touchAction: "none",
                       }}
@@ -690,11 +726,15 @@ export default function ZoneEditor({
                       {/* Mini barre d'action flottante sur sélection */}
                       {isSelected && (
                         <div
-                          className="absolute -top-7 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 shadow-md text-[11px]"
+                          className="absolute -top-7 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-0.5 shadow-md text-[11px] whitespace-nowrap"
                           onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => e.stopPropagation()}
                         >
                           <span className={`font-semibold ${zoneColor.text}`}>{signer.name}</span>
+                          <span className="text-slate-300">|</span>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {Math.round(wPct * 100)}% × {Math.round(hPct * 100)}%
+                          </span>
                           <span className="text-slate-300">|</span>
                           <button
                             type="button"
@@ -715,6 +755,16 @@ export default function ZoneEditor({
                       >
                         {signer.name} — signature
                       </span>
+
+                      {/* Aperçu responsive du contenu de la signature */}
+                      <div className="flex h-full w-full flex-col items-center justify-center p-1 pointer-events-none select-none text-center">
+                        <span className="font-serif italic text-slate-500/80 text-xs sm:text-sm truncate max-w-full">
+                          ✍️ {signer.name}
+                        </span>
+                        <span className="text-[9px] text-slate-400/80 tracking-tight truncate max-w-full">
+                          Zone de signature ({Math.round(wPct * 100)}% × {Math.round(hPct * 100)}%)
+                        </span>
+                      </div>
 
                       {isSelected && renderHandles("zone", signer.id, geometry)}
                     </div>
