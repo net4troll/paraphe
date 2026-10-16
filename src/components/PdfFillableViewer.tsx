@@ -43,8 +43,8 @@ const HEIGHT_PCT: Record<string, number> = {
 const inputClasses = (filled: boolean) =>
   `w-full rounded-[3px] px-1 text-[11px] sm:text-[12px] outline-none transition ${
     filled
-      ? "border border-brand-600/50 bg-brand-50/50 text-slate-900"
-      : "border border-dashed border-slate-400 bg-white/95 text-slate-600 hover:border-brand-600/60"
+      ? "border border-brand-600/50 bg-white text-slate-900 shadow-xs"
+      : "border border-dashed border-slate-400 bg-white text-slate-600 hover:border-brand-600/60"
   } focus:border-brand-700 focus:bg-white focus:ring-1 focus:ring-brand-600/30`;
 
 /**
@@ -122,9 +122,11 @@ export default function PdfFillableViewer({
                   renderTextLayer={false}
                   renderAnnotationLayer={false}
                 />
-                {pageFields.map((field) => {
-                  const value = String(values[field.id] ?? field.presetValue ?? "");
-                  const filled = value.trim() !== "";
+                {pageFields
+                  .filter((f) => !f.presetValue)
+                  .map((field) => {
+                    const value = String(values[field.id] ?? "");
+                    const filled = value.trim() !== "";
                   const hPct = HEIGHT_PCT[field.type] ?? 2.6;
                   const common = {
                     "data-field-input": field.id,

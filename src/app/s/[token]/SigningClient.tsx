@@ -439,14 +439,43 @@ export default function SigningClient(props: Props) {
                 </p>
               </section>
             ) : props.fields.length > 0 ? (
-              <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-xs text-emerald-900 shadow-xs">
-                <SealCheck size={22} className="shrink-0 text-emerald-600" />
-                <div className="leading-relaxed">
-                  <p className="font-semibold text-emerald-950">Champs déjà complétés</p>
-                  <p className="text-emerald-700/90">
-                    L&apos;expéditeur a déjà pré-rempli toutes les informations. Vous pouvez apposer directement votre signature ci-dessous.
-                  </p>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-xs text-emerald-900 shadow-xs">
+                  <SealCheck size={22} className="shrink-0 text-emerald-600" />
+                  <div className="leading-relaxed">
+                    <p className="font-semibold text-emerald-950">Champs déjà complétés</p>
+                    <p className="text-emerald-700/90">
+                      L&apos;expéditeur a déjà pré-rempli toutes les informations sur le document. Vous pouvez vérifier ou corriger vos coordonnées ci-dessous, puis signer.
+                    </p>
+                  </div>
                 </div>
+
+                <details className="group rounded-2xl border border-slate-200 bg-white p-3.5 text-xs text-slate-700 shadow-xs">
+                  <summary className="flex cursor-pointer items-center justify-between font-medium text-slate-800 select-none">
+                    <span className="flex items-center gap-2">
+                      <ListChecks size={15} className="text-slate-500" /> Corriger / modifier les informations
+                    </span>
+                    <span className="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+                  </summary>
+                  <div className="mt-3 space-y-2.5 pt-2 border-t border-slate-100">
+                    {props.fields.map((f) => {
+                      const curVal = String(values[f.id] ?? f.presetValue ?? "");
+                      return (
+                        <div key={f.id} className="space-y-1">
+                          <label className="text-[11px] font-medium text-slate-500 capitalize">
+                            {f.label}
+                          </label>
+                          <input
+                            type="text"
+                            value={curVal}
+                            onChange={(e) => setValues((v) => ({ ...v, [f.id]: e.target.value }))}
+                            className="w-full rounded-lg border border-slate-200 bg-slate-50/60 px-2.5 py-1.5 text-xs text-slate-900 outline-none transition focus:border-brand-600 focus:bg-white"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </details>
               </div>
             ) : null}
 
