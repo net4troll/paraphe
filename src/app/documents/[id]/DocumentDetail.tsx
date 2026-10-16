@@ -23,6 +23,7 @@ import QrCode from "react-qr-code";
 import StatusDot from "@/components/StatusDot";
 import PdfViewer from "@/components/PdfViewer";
 import ZoneEditor, { type FieldType, type FieldView, type ZoneSigner } from "@/components/ZoneEditor";
+import { STANDARD_ROLES, isStandardRole } from "@/lib/roles";
 
 type SignerView = ZoneSigner & {
   email: string;
@@ -742,13 +743,30 @@ export default function DocumentDetail({
                         <div className="grid grid-cols-2 gap-2">
                           <div>
                             <label className="text-[11px] font-medium text-slate-500">Rôle</label>
-                            <input
-                              type="text"
-                              value={signerRoleDraft}
+                            <select
+                              value={isStandardRole(signerRoleDraft) ? signerRoleDraft : "Autre"}
                               onChange={(e) => setSignerRoleDraft(e.target.value)}
-                              className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none focus:border-brand-600"
-                              placeholder="Partenaire"
-                            />
+                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 outline-none focus:border-brand-600"
+                            >
+                              {STANDARD_ROLES.map((r) => (
+                                <option key={r} value={r}>
+                                  {r}
+                                </option>
+                              ))}
+                              <option value="Autre">Autre</option>
+                            </select>
+                            {!isStandardRole(signerRoleDraft) && (
+                              <input
+                                type="text"
+                                value={signerRoleDraft === "Autre" ? "" : signerRoleDraft}
+                                onChange={(e) =>
+                                  setSignerRoleDraft(e.target.value ? e.target.value : "Autre")
+                                }
+                                className="mt-1.5 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 outline-none focus:border-brand-600"
+                                placeholder="Précisez le rôle"
+                                autoFocus
+                              />
+                            )}
                           </div>
                           <div>
                             <label className="text-[11px] font-medium text-slate-500">Email</label>
@@ -757,7 +775,7 @@ export default function DocumentDetail({
                               value={signerEmailDraft}
                               onChange={(e) => setSignerEmailDraft(e.target.value)}
                               className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none focus:border-brand-600"
-                              placeholder="email@example.com"
+                              placeholder="Email (optionnel)"
                             />
                           </div>
                         </div>
@@ -897,20 +915,37 @@ export default function DocumentDetail({
                         value={newSignerName}
                         onChange={(e) => setNewSignerName(e.target.value)}
                         className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none focus:border-brand-600"
-                        placeholder="Ex : Jean Dupont"
+                        placeholder="Nom et prénom"
                         autoFocus
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-[11px] font-medium text-slate-500">Rôle</label>
-                        <input
-                          type="text"
-                          value={newSignerRole}
+                        <select
+                          value={isStandardRole(newSignerRole) ? newSignerRole : "Autre"}
                           onChange={(e) => setNewSignerRole(e.target.value)}
-                          className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none focus:border-brand-600"
-                          placeholder="Partenaire"
-                        />
+                          className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 outline-none focus:border-brand-600"
+                        >
+                          {STANDARD_ROLES.map((r) => (
+                            <option key={r} value={r}>
+                              {r}
+                            </option>
+                          ))}
+                          <option value="Autre">Autre</option>
+                        </select>
+                        {!isStandardRole(newSignerRole) && (
+                          <input
+                            type="text"
+                            value={newSignerRole === "Autre" ? "" : newSignerRole}
+                            onChange={(e) =>
+                              setNewSignerRole(e.target.value ? e.target.value : "Autre")
+                            }
+                            className="mt-1.5 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 outline-none focus:border-brand-600"
+                            placeholder="Précisez le rôle"
+                            autoFocus
+                          />
+                        )}
                       </div>
                       <div>
                         <label className="text-[11px] font-medium text-slate-500">Email (optionnel)</label>
@@ -919,7 +954,7 @@ export default function DocumentDetail({
                           value={newSignerEmail}
                           onChange={(e) => setNewSignerEmail(e.target.value)}
                           className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none focus:border-brand-600"
-                          placeholder="jean@dupont.fr"
+                          placeholder="Email (optionnel)"
                         />
                       </div>
                     </div>

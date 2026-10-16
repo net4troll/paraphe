@@ -4,10 +4,10 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, FilePdf, Plus, Trash, UploadSimple, X } from "@phosphor-icons/react/ssr";
+import { STANDARD_ROLES, isStandardRole } from "@/lib/roles";
 
 type SignerRow = { name: string; email: string; role: string };
 
-const ROLES = ["Partenaire", "Intervenant", "Représentant", "Témoin"];
 const INITIALS_COLOR = ["bg-brand-50 text-brand-700", "bg-amber-50 text-amber-700", "bg-blue-50 text-blue-700", "bg-rose-50 text-rose-700", "bg-violet-50 text-violet-700", "bg-slate-100 text-slate-600"];
 
 function formatSize(bytes: number): string {
@@ -112,7 +112,7 @@ export default function NewDocumentPage() {
               maxLength={200}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ex. Convention de partenariat IFIN — 2026"
+              placeholder="Titre du document"
               className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
             />
 
@@ -192,13 +192,34 @@ export default function NewDocumentPage() {
                     onChange={(e) => updateSigner(i, { email: e.target.value })}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
                   />
-                  <input
-                    placeholder="Qualité"
-                    list="roles"
-                    value={signer.role}
-                    onChange={(e) => updateSigner(i, { role: e.target.value })}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
-                  />
+                  <div className="min-w-0">
+                    <select
+                      value={isStandardRole(signer.role) ? signer.role : "Autre"}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        updateSigner(i, { role: val });
+                      }}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
+                    >
+                      {STANDARD_ROLES.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                      <option value="Autre">Autre</option>
+                    </select>
+                    {!isStandardRole(signer.role) && (
+                      <input
+                        placeholder="Précisez le rôle"
+                        value={signer.role === "Autre" ? "" : signer.role}
+                        onChange={(e) =>
+                          updateSigner(i, { role: e.target.value ? e.target.value : "Autre" })
+                        }
+                        className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs outline-none transition focus:border-brand-600 focus:ring-2 focus:ring-brand-600/15"
+                        autoFocus
+                      />
+                    )}
+                  </div>
                 </div>
                 {signers.length > 1 && (
                   <button
@@ -212,11 +233,6 @@ export default function NewDocumentPage() {
                 )}
               </div>
             ))}
-            <datalist id="roles">
-              {ROLES.map((r) => (
-                <option key={r} value={r} />
-              ))}
-            </datalist>
             {signers.length < 6 && (
               <button
                 type="button"
